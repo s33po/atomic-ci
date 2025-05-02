@@ -10,6 +10,11 @@ on:
         description: "The name of the image to build"
         required: true
         type: string
+      image-description:
+        description: "The description of the image to build"
+        required: false
+        type: string
+        default: "AlmaLinux image"
       image-registry:
         description: "The registry to push the image to"
         required: false
@@ -25,6 +30,11 @@ on:
         required: false
         type: string
         default: "amd64,arm64"
+      docs-url:
+        description: "The URL to the documentation for the image"
+        required: false
+        type: string
+        default: "https://github.com/${{ github.event.repository }}"
     outputs:
       image-ref:
         description: "The image reference of the built image"
@@ -60,6 +70,12 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
+      - name: Dump github context
+        shell: bash
+        env:
+          GITHUB_CONTEXT: ${{ toJson(github) }}
+        run: echo "$GITHUB_CONTEXT"
+
       - name: Set matrix
         id: set-matrix
         run: |
@@ -233,3 +249,182 @@ jobs:
           if-no-files-found: error
           path: |
             /tmp/outputs/digests/*.txt
+
+  manifest:
+    name: Create Manifest
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - generate_matrix
+      - build_push
+    container:
+      image:  cgr.dev/chainguard/wolfi-base:latest
+      options: --privileged --security-opt seccomp=unconfined
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    outputs:
+      image: ${{ steps.push_manifest.outputs.IMAGE }}
+      digest: ${{ steps.push_manifest.outputs.DIGEST }}
+    steps:
+      - name: Install dependencies
+        run: |
+          apk add \
+            jq \
+            git \
+            podman \
+            uutils \
+            bash \
+            conmon \
+            crun \
+            netavark \
+            fuse-overlayfs
+          ln -sf /bin/bash /bin/sh
+          mkdir -p /etc/containers
+          echo '{"default":[{"type":"insecureAcceptAnything"}]}' | jq . > /etc/containers/policy.json
+
+      - name: Exit on failure
+        env:
+          JOBS: ${{ toJson(needs) }}
+        run: |
+          echo "Job status:"
+          echo $JOBS | jq -r 'to_entries[] | " - \(.key): \(.value.result)"'
+
+          for i in $(echo $JOBS | jq -r 'to_entries[] | .value.result'); do
+            if [ "$i" != "success" ] && [ "$i" != "skipped" ]; then
+              echo ""
+              echo "Status check not okay!"
+              exit 1
+            fi
+          done
+
+      - name: Get current date
+        id: date
+        run: |
+          # Should generate a timestamp like what is defined on the ArtifactHub documentation
+          # E.G: 2022-02-08T15:38:15Z'
+          # https://artifacthub.io/docs/topics/repositories/container-images/
+          # https://linux.die.net/man/1/date
+          echo "date=$(date -u +%Y\-%m\-%d\T%H\:%M\:%S\Z)" >> $GITHUB_OUTPUT
+
+      - name: Image Metadata
+        uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5
+        id: metadata
+        with:
+          tags: |
+            type=raw,value=${{ env.WORKING_TAG }}
+            type=sha,enable=${{ github.event_name != 'pull_request' }}
+            type=ref,event=pr
+          labels: |
+            containers.bootc=1
+            org.opencontainers.image.created=${{ steps.date.outputs.date }}
+            org.opencontainers.image.description=${{ inputs.image-description }}
+            org.opencontainers.image.documentation=${{ inputs.docs-url }}
+            org.opencontainers.image.source=https://github.com/${{ github.event.repository }}/blob/main/${{ inputs.containerfile }}
+            org.opencontainers.image.title=${{ env.IMAGE_NAME }}
+            org.opencontainers.image.url=https://github.com/${{ github.event.repository }}
+            org.opencontainers.image.vendor=${{ github.event.repository.owner.login }}
+
+      - name: Fetch Build Outputs
+        if: github.event_name != 'pull_request'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: ${{ env.IMAGE_NAME }}-*
+          merge-multiple: true
+          path: /tmp/artifacts
+
+      - name: Load Outputs
+        if: github.event_name != 'pull_request'
+        id: load-outputs
+        run: |
+          DIGESTS_JSON=$(jq -n '{}')
+          for digest_file in /tmp/artifacts/*.txt; do
+            # Extract the platform from the file name
+            PLATFORM=$(basename $digest_file | rev | cut -d'-' -f1 | rev | cut -d'.' -f1)
+            DIGEST=$(cat $digest_file)
+            # Add the platform and digest to the JSON object
+            DIGESTS_JSON=$(echo "$DIGESTS_JSON" | jq --arg key "$PLATFORM" --arg value "$DIGEST" '. + {($key): $value}')
+          done
+          echo "DIGESTS_JSON=$(echo $DIGESTS_JSON | jq -c '.')" >> $GITHUB_OUTPUT
+
+      - name: Create Manifest
+        if: github.event_name != 'pull_request'
+        id: create-manifest
+        env:
+          IMAGE_REF: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_PATH }}/${{ env.IMAGE_NAME }}
+        run: |
+          podman manifest create ${{ env.IMAGE_REF }}
+          echo "MANIFEST=${{ env.IMAGE_REF }}" >> $GITHUB_OUTPUT
+
+      - name: Populate Manifest
+        if: github.event_name != 'pull_request'
+        env:
+          MANIFEST: ${{ steps.create-manifest.outputs.MANIFEST }}
+          DIGESTS_JSON: ${{ steps.load-outputs.outputs.DIGESTS_JSON }}
+          LABELS: ${{ steps.metadata.outputs.labels }}
+          IMAGE_REF: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_PATH }}/${{ env.IMAGE_NAME }}
+        run: |
+          DIGESTS=$(echo "$DIGESTS_JSON" | jq -c '.')
+          # turn the comma separated string into a list
+          platforms=()
+          IFS=',' read -r -a platforms <<< "${{ inputs.platforms }}"
+          for platform in ${platforms[@]}; do
+            digest=$(echo $DIGESTS | jq -r ".$platform")
+            echo "Adding ${{ env.IMAGE_REF }}@$digest for $platform"
+            podman manifest add $MANIFEST ${{ env.IMAGE_REF }}@$digest --arch $platform
+          done
+
+          # Apply the labels to the manifest (separated by newlines)
+          while IFS= read -r label; do
+            echo "Applying label $label to manifest"
+            podman manifest annotate --index --annotation "$label" $MANIFEST
+          done <<< "$LABELS"
+
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        run: echo ${{ secrets.REGISTRY_TOKEN }} | podman login -u ${{ secrets.REGISTRY_USER }} --password-stdin ${{ env.IMAGE_REGISTRY }}
+
+      - name: Push Manifest
+        if: github.event_name != 'pull_request'
+        id: push_manifest
+        env:
+          MANIFEST: ${{ steps.create-manifest.outputs.MANIFEST }}
+          TAGS: ${{ steps.metadata.outputs.tags }}
+          IMAGE_REF: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_PATH }}/${{ env.IMAGE_NAME }}
+        run: |
+          while IFS= read -r tag; do
+            podman manifest push --all=false --digestfile=/tmp/digestfile $MANIFEST $IMAGE_REF:$tag
+          done <<< "$TAGS"
+
+          DIGEST=$(cat /tmp/digestfile)
+          echo "DIGEST=$DIGEST" >> $GITHUB_OUTPUT
+          echo "IMAGE=$IMAGE_REF" >> $GITHUB_OUTPUT
+
+  # Cosign throws errors when ran inside the Fedora container for one reason or another
+  # so we move this to another step in order to run on Ubuntu
+  sign:
+    needs: manifest
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - name: Login to GHCR
+        run: |
+          echo ${{ secrets.REGISTRY_TOKEN }} | podman login -u ${{ secrets.REGISTRY_USER }} --password-stdin ${{ env.IMAGE_REGISTRY }}
+          echo ${{ secrets.REGISTRY_TOKEN }} | docker login -u ${{ secrets.REGISTRY_USER }} --password-stdin ${{ env.IMAGE_REGISTRY }}
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@3454372f43399081ed03b604cb2d021dabca52bb # v3.8.2
+
+      - name: Sign Manifest
+        env:
+          DIGEST: ${{ needs.manifest.outputs.digest }}
+          IMAGE: ${{ needs.manifest.outputs.image }}
+          COSIGN_EXPERIMENTAL: false
+          COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
+        run: |
+          cosign sign -y --key env://COSIGN_PRIVATE_KEY $IMAGE@$DIGEST
