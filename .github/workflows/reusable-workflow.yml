@@ -10,12 +10,35 @@ on:
         description: "The name of the image to build"
         required: true
         type: string
+      image-registry:
+        description: "The registry to push the image to"
+        required: false
+        type: string
+        default: "ghcr.io"
+      image-path:
+        description: "The path to the image in the registry"
+        required: false
+        type: string
+        default: "${{ github.event.repository.name }}"
       platforms:
         description: "The platforms to build the image for"
         required: false
         type: string
         default: "amd64,arm64"
+    outputs:
+      image-ref:
+        description: "The image reference of the built image"
+        value: ${{ jobs.build_push.outputs.image-ref }}
+      digest:
+        description: "The digest of the built image"
+        value: ${{ jobs.build_push.outputs.digest }}
     secrets:
+      REGISTRY_USER:
+        description: "The username to use for the registry"
+        required: true
+      REGISTRY_TOKEN:
+        description: "The token to use for the registry"
+        required: true
       SIGNING_SECRET:
         description: "The private key used to sign the image"
         required: true
@@ -24,7 +47,8 @@ env:
   IMAGE_NAME: ${{ inputs.image-name }}
   CONTAINERFILE: ${{ inputs.containerfile }}
   WORKING_TAG: "run-${{ github.run_number }}"
-  IMAGE_REGISTRY: "ghcr.io/${{ github.repository_owner }}"
+  IMAGE_REGISTRY: ${{ inputs.image-registry }}
+  IMAGE_PATH: ${{ inputs.image-path }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref || github.run_id }}-${{ inputs.image-name }}
@@ -62,7 +86,17 @@ jobs:
       packages: write
       id-token: write
 
+    outputs:
+      image-ref: ${{ steps.push.outputs.image-ref }}
+      digest: ${{ steps.push.outputs.digest }}
+
     steps:
+      - name: Login to Container Registry
+        if: github.event_name != 'pull_request'
+        run: |
+          echo ${{ secrets.REGISTRY_TOKEN }} | podman login -u ${{ secrets.REGISTRY_USER }} --password-stdin ${{ env.IMAGE_REGISTRY }}
+          echo ${{ secrets.REGISTRY_TOKEN }} | docker login -u ${{ secrets.REGISTRY_USER }} --password-stdin ${{ env.IMAGE_REGISTRY }}
+
       - name: Maximize build space
         if: matrix.platform != 'arm64'
         uses: ublue-os/remove-unwanted-software@cc0becac701cf642c8f0a6613bbdaf5dc36b259e # v9
@@ -75,11 +109,31 @@ jobs:
       - name: Build image
         id: build
         shell: bash
+        env:
+          IMAGE_TAG: ${{ env.WORKING_TAG }}-${{ matrix.platform }}
         run: |
           podman build \
             --security-opt=label=disable \
             --cap-add=all \
             --device /dev/fuse \
-            -t ${{ env.IMAGE_NAME }}:${{ env.WORKING_TAG }} \
+            -t ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
             -f ${{ env.CONTAINERFILE }} \
             .
+
+      # Push the image to GHCR (Image Registry)
+      - name: Push to registry
+        if: github.event_name != 'pull_request'
+        id: push
+        env:
+          IMAGE_TAG: ${{ env.WORKING_TAG }}-${{ matrix.platform }}
+          IMAGE_REF: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_PATH }}/${{ env.IMAGE_NAME }}
+        run: |
+          set -x
+          podman tag ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} ${{ env.IMAGE_REF }}:${{ env.IMAGE_TAG }}
+          for i in {1..3}; do
+            podman push --digestfile=/tmp/digestfile ${{ env.IMAGE_REF }}:${{ env.IMAGE_TAG }} && break || sleep $((5 * i));
+          done
+          REMOTE_IMAGE_DIGEST=$(cat /tmp/digestfile)
+          echo "digest=$REMOTE_IMAGE_DIGEST" >> $GITHUB_OUTPUT
+          echo "image-ref=${{ env.IMAGE_REF }}:${{ env.IMAGE_TAG }}" >> $GITHUB_OUTPUT
+          cat /tmp/digestfile
