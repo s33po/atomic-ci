@@ -120,6 +120,26 @@ jobs:
             -f ${{ env.CONTAINERFILE }} \
             .
 
+      - name: Setup Syft
+        id: setup-syft
+        if: github.event_name != 'pull_request'
+        uses: anchore/sbom-action/download-syft@9f7302141466aa6482940f15371237e9d9f4c34a # v0
+
+      - name: Generate SBOM
+        id: generate-sbom
+        if: github.event_name != 'pull_request'
+        env:
+          IMAGE: ${{ env.IMAGE_NAME }}
+          IMAGE_TAG: ${{ env.WORKING_TAG }}-${{ matrix.platform }}
+          SYFT_CMD: ${{ steps.setup-syft.outputs.cmd }}
+        run: |
+          sudo systemctl start podman.socket
+
+          OUTPUT_PATH="$(mktemp -d)/sbom.json"
+          export SYFT_PARALLELISM=$(($(nproc)*2))
+          sudo $SYFT_CMD ${IMAGE}:${IMAGE_TAG} -o spdx-json=${OUTPUT_PATH}
+          echo "OUTPUT_PATH=${OUTPUT_PATH}" >> $GITHUB_OUTPUT
+
       - name: Run Rechunker
         if: github.event_name != 'pull_request'
         id: rechunk
@@ -178,3 +198,38 @@ jobs:
           COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
           IMAGE_REF: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_PATH }}/${{ env.IMAGE_NAME }}
         run: cosign sign -y --key env://COSIGN_PRIVATE_KEY ${IMAGE_REF}@${{ steps.push.outputs.digest }}
+
+      - name: Add SBOM Attestation
+        if: github.event_name != 'pull_request'
+        env:
+          IMAGE: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_PATH }}/${{ env.IMAGE_NAME }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+          COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
+          SBOM_OUTPUT: ${{ steps.generate-sbom.outputs.OUTPUT_PATH }}
+        run: |
+          cd "$(dirname "$SBOM_OUTPUT")"
+          cosign attest -y \
+            --predicate ./sbom.json \
+            --type spdxjson \
+            --key env://COSIGN_PRIVATE_KEY \
+            "${IMAGE}@${DIGEST}"
+
+      - name: Create Job Outputs
+        if: github.event_name != 'pull_request'
+        env:
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          PLATFORM: ${{ matrix.platform }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          mkdir -p /tmp/outputs/digests
+          echo "${DIGEST}" > /tmp/outputs/digests/${IMAGE_NAME}-${PLATFORM}.txt
+
+      - name: Upload Output Artifacts
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ env.IMAGE_NAME }}-${{ matrix.platform }}
+          retention-days: 1
+          if-no-files-found: error
+          path: |
+            /tmp/outputs/digests/*.txt
