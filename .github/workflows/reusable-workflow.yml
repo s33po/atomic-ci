@@ -55,10 +55,10 @@ jobs:
     steps:
       - name: Maximize build space
         if: matrix.platform != 'arm64'
-        uses: ublue-os/remove-unwanted-software@v9
+        uses: ublue-os/remove-unwanted-software@cc0becac701cf642c8f0a6613bbdaf5dc36b259e # v9
         with:
           remove-codeql: true
 
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
 
