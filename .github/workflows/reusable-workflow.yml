@@ -38,10 +38,10 @@ on:
     outputs:
       image-ref:
         description: "The image reference of the built image"
-        value: ${{ jobs.build_push.outputs.image-ref }}
+        value: ${{ jobs.manifest.outputs.image }}
       digest:
         description: "The digest of the built image"
-        value: ${{ jobs.build_push.outputs.digest }}
+        value: ${{ jobs.manifest.outputs.digest }}
     secrets:
       REGISTRY_USER:
         description: "The username to use for the registry"
