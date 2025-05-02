@@ -112,13 +112,41 @@ jobs:
         env:
           IMAGE_TAG: ${{ env.WORKING_TAG }}-${{ matrix.platform }}
         run: |
-          podman build \
+          sudo podman build \
             --security-opt=label=disable \
             --cap-add=all \
             --device /dev/fuse \
             -t ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
             -f ${{ env.CONTAINERFILE }} \
             .
+
+      - name: Run Rechunker
+        if: github.event_name != 'pull_request'
+        id: rechunk
+        uses: hhd-dev/rechunk@ca77507401f8700bb0b25ebecbbf980a078cd180 # v1.2.2
+        env:
+          IMAGE_TAG: ${{ env.WORKING_TAG }}-${{ matrix.platform }}
+        with:
+          rechunk: "ghcr.io/hhd-dev/rechunk:v1.2.1"
+          ref: "localhost/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
+          prev-ref: "${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
+          skip_compression: true
+          # version: $ {{ env.CENTOS_VERSION }}
+
+      - name: Load Image
+        if: github.event_name != 'pull_request'
+        id: load
+        env:
+          IMAGE_TAG: ${{ env.WORKING_TAG }}-${{ matrix.platform }}
+        run: |
+          IMAGE=$(podman pull ${{ steps.rechunk.outputs.ref }})
+          sudo rm -rf ${{ steps.rechunk.outputs.location }}
+          podman image tag $IMAGE ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+
+          IMAGE=${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          IMAGE_DIGEST=$(podman image inspect --format '{{.Digest}}' $IMAGE)
+          echo "image=$IMAGE" >> $GITHUB_OUTPUT
+          echo "digest=$IMAGE_DIGEST" >> $GITHUB_OUTPUT
 
       # Push the image to GHCR (Image Registry)
       - name: Push to registry
