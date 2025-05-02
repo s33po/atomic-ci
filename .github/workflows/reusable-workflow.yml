@@ -19,7 +19,7 @@ on:
         description: "The path to the image in the registry"
         required: false
         type: string
-        default: "${{ github.event.repository.name }}"
+        default: "${{ github.event.repository.owner.login }}"
       platforms:
         description: "The platforms to build the image for"
         required: false
