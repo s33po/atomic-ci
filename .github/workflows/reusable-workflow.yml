@@ -35,7 +35,7 @@ on:
         description: "The URL to the documentation for the image"
         required: false
         type: string
-        default: "${{ github.html_url }}"
+        default: "${{ github.event.repository.html_url }}"
     outputs:
       image-ref:
         description: "The image reference of the built image"
@@ -316,9 +316,9 @@ jobs:
             org.opencontainers.image.created=${{ steps.date.outputs.date }}
             org.opencontainers.image.description=${{ inputs.image-description }}
             org.opencontainers.image.documentation=${{ inputs.docs-url }}
-            org.opencontainers.image.source=https://github.com/${{ github.event.repository }}/blob/main/${{ inputs.containerfile }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}/blob/main/${{ inputs.containerfile }}
             org.opencontainers.image.title=${{ env.IMAGE_NAME }}
-            org.opencontainers.image.url=${{ github.html_url }}
+            org.opencontainers.image.url=${{ github.event.repository.html_url }}
             org.opencontainers.image.vendor=${{ github.repository_owner }}
 
       - name: Fetch Build Outputs
@@ -395,6 +395,7 @@ jobs:
           DIGEST=$(cat /tmp/digestfile)
           echo "DIGEST=$DIGEST" >> $GITHUB_OUTPUT
           echo "IMAGE=$IMAGE_REF" >> $GITHUB_OUTPUT
+          echo "Pushed manifest to $IMAGE_REF with digest $DIGEST"
 
   # Cosign throws errors when ran inside the Fedora container for one reason or another
   # so we move this to another step in order to run on Ubuntu
