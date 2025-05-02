@@ -24,7 +24,8 @@ on:
         description: "The path to the image in the registry"
         required: false
         type: string
-        default: "${{ github.event.repository.owner.login }}"
+        # default: "${{ github.event.repository.owner.login }}"
+        default: "${{ github.repository_owner }}"
       platforms:
         description: "The platforms to build the image for"
         required: false
@@ -34,7 +35,7 @@ on:
         description: "The URL to the documentation for the image"
         required: false
         type: string
-        default: "https://github.com/${{ github.event.repository }}"
+        default: "${{ github.html_url }}"
     outputs:
       image-ref:
         description: "The image reference of the built image"
@@ -70,12 +71,6 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      - name: Dump github context
-        shell: bash
-        env:
-          GITHUB_CONTEXT: ${{ toJson(github) }}
-        run: echo "$GITHUB_CONTEXT"
-
       - name: Set matrix
         id: set-matrix
         run: |
@@ -323,8 +318,8 @@ jobs:
             org.opencontainers.image.documentation=${{ inputs.docs-url }}
             org.opencontainers.image.source=https://github.com/${{ github.event.repository }}/blob/main/${{ inputs.containerfile }}
             org.opencontainers.image.title=${{ env.IMAGE_NAME }}
-            org.opencontainers.image.url=https://github.com/${{ github.event.repository }}
-            org.opencontainers.image.vendor=${{ github.event.repository.owner.login }}
+            org.opencontainers.image.url=${{ github.html_url }}
+            org.opencontainers.image.vendor=${{ github.repository_owner }}
 
       - name: Fetch Build Outputs
         if: github.event_name != 'pull_request'
