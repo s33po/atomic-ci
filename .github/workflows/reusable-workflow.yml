@@ -36,6 +36,11 @@ on:
         required: false
         type: string
         default: "${{ github.event.repository.html_url }}"
+      REGISTRY_USER:
+        description: "The username to use for the registry"
+        required: false
+        type: string
+        default: "${{ github.actor }}"
     outputs:
       image-ref:
         description: "The image reference of the built image"
@@ -44,9 +49,6 @@ on:
         description: "The digest of the built image"
         value: ${{ jobs.manifest.outputs.digest }}
     secrets:
-      REGISTRY_USER:
-        description: "The username to use for the registry"
-        required: true
       REGISTRY_TOKEN:
         description: "The token to use for the registry"
         required: true
@@ -104,9 +106,11 @@ jobs:
     steps:
       - name: Login to Container Registry
         if: github.event_name != 'pull_request'
-        run: |
-          echo ${{ secrets.REGISTRY_TOKEN }} | podman login -u ${{ secrets.REGISTRY_USER }} --password-stdin ${{ env.IMAGE_REGISTRY }}
-          echo ${{ secrets.REGISTRY_TOKEN }} | docker login -u ${{ secrets.REGISTRY_USER }} --password-stdin ${{ env.IMAGE_REGISTRY }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.IMAGE_REGISTRY }}
+          username: ${{ inputs.REGISTRY_USER }}
+          password: ${{ secrets.REGISTRY_TOKEN }}
 
       - name: Maximize build space
         if: matrix.platform != 'arm64'
@@ -376,9 +380,13 @@ jobs:
             podman manifest annotate --index --annotation "$label" $MANIFEST
           done <<< "$LABELS"
 
-      - name: Login to GHCR
+      - name: Login to Container Registry
         if: github.event_name != 'pull_request'
-        run: echo ${{ secrets.REGISTRY_TOKEN }} | podman login -u ${{ secrets.REGISTRY_USER }} --password-stdin ${{ env.IMAGE_REGISTRY }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.IMAGE_REGISTRY }}
+          username: ${{ inputs.REGISTRY_USER }}
+          password: ${{ secrets.REGISTRY_TOKEN }}
 
       - name: Push Manifest
         if: github.event_name != 'pull_request'
@@ -408,10 +416,12 @@ jobs:
       packages: write
       id-token: write
     steps:
-      - name: Login to GHCR
-        run: |
-          echo ${{ secrets.REGISTRY_TOKEN }} | podman login -u ${{ secrets.REGISTRY_USER }} --password-stdin ${{ env.IMAGE_REGISTRY }}
-          echo ${{ secrets.REGISTRY_TOKEN }} | docker login -u ${{ secrets.REGISTRY_USER }} --password-stdin ${{ env.IMAGE_REGISTRY }}
+      - name: Login to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.IMAGE_REGISTRY }}
+          username: ${{ inputs.REGISTRY_USER }}
+          password: ${{ secrets.REGISTRY_TOKEN }}
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@3454372f43399081ed03b604cb2d021dabca52bb # v3.8.2
