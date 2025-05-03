@@ -135,6 +135,9 @@ jobs:
             -f ${{ env.CONTAINERFILE }} \
             .
 
+          sudo podman image inspect ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          sudo podman run --rm ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} cat /etc/os-release
+
       - name: Setup Syft
         id: setup-syft
         if: github.event_name != 'pull_request'
@@ -180,10 +183,11 @@ jobs:
 
           IMAGE=${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
           IMAGE_DIGEST=$(podman image inspect --format '{{.Digest}}' $IMAGE)
-          VERSION_ID=$(podman image inspect --format '{{.Labels["redhat.version-id"]}}' $IMAGE)
+          #VERSION_ID=$(podman image inspect --format '{{.Labels["redhat.version-id"]}}' $IMAGE)
           echo "image=$IMAGE" >> $GITHUB_OUTPUT
           echo "digest=$IMAGE_DIGEST" >> $GITHUB_OUTPUT
-          echo "version-id=$VERSION_ID" >> $GITHUB_OUTPUT
+          #echo "version-id=$VERSION_ID" >> $GITHUB_OUTPUT
+          podman image inspect $IMAGE | jq .
 
       # Push the image to GHCR (Image Registry)
       - name: Push to registry
