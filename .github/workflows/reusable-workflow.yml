@@ -48,6 +48,15 @@ on:
       digest:
         description: "The digest of the built image"
         value: ${{ jobs.manifest.outputs.digest }}
+      # version:
+      #   description: "The version of the built image"
+      #   value: ${{ jobs.manifest.outputs.version }}
+      # redhat-id:
+      #   description: "The redhat.id label of the built image"
+      #   value: ${{ jobs.manifest.outputs.redhat-id }}
+      # redhat-version-id:
+      #   description: "The redhat.version-id label of the built image"
+      #   value: ${{ jobs.manifest.outputs.redhat-version-id }}
     secrets:
       REGISTRY_TOKEN:
         description: "The token to use for the registry"
@@ -177,9 +186,9 @@ jobs:
         with:
           rechunk: "ghcr.io/hhd-dev/rechunk:v1.2.1"
           ref: "localhost/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
-          prev-ref: "${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
+          prev-ref: "${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}" # TODO: change this to point to the previous prod image, this is used to calculate the diff between the two
           skip_compression: true
-          version: "${{ steps.check.outputs.version }}_<date>"
+          version: ${{ steps.check.outputs.version }}
           pretty: ${{ steps.check.outputs.version }}
           labels: |
             redhat.id=${{ steps.check.outputs.redhat-id }}
@@ -196,12 +205,12 @@ jobs:
           podman image tag $IMAGE ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
 
           IMAGE=${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-          IMAGE_DIGEST=$(podman image inspect --format '{{.Digest}}' $IMAGE)
-          #VERSION_ID=$(podman image inspect --format '{{.Labels["redhat.version-id"]}}' $IMAGE)
+          INSPECT=$(podman image inspect $IMAGE)
           echo "image=$IMAGE" >> $GITHUB_OUTPUT
-          echo "digest=$IMAGE_DIGEST" >> $GITHUB_OUTPUT
-          #echo "version-id=$VERSION_ID" >> $GITHUB_OUTPUT
-          podman image inspect $IMAGE | jq .
+          echo "digest=$(echo "$INSPECT" | jq -r '.[0].Digest')" >> $GITHUB_OUTPUT
+          echo "redhat-id=$(echo "$INSPECT" | jq -r '.[0].Labels["redhat.id"]')" >> $GITHUB_OUTPUT
+          echo "redhat-version-id=$(echo "$INSPECT" | jq -r '.[0].Labels["redhat.version-id"]')" >> $GITHUB_OUTPUT
+          echo "version=$(echo "$INSPECT" | jq -r '.[0].Labels["org.opencontainers.image.version"]')" >> $GITHUB_OUTPUT
 
       # Push the image to GHCR (Image Registry)
       - name: Push to registry
@@ -424,7 +433,6 @@ jobs:
           echo "DIGEST=$DIGEST" >> $GITHUB_OUTPUT
           echo "IMAGE=$IMAGE_REF" >> $GITHUB_OUTPUT
           echo "Pushed manifest to $IMAGE_REF with digest $DIGEST"
-          podman image inspect $IMAGE_REF:$tag | jq .
 
   # Cosign throws errors when ran inside the Fedora container for one reason or another
   # so we move this to another step in order to run on Ubuntu
