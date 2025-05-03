@@ -140,6 +140,8 @@ jobs:
             --security-opt=label=disable \
             --cap-add=all \
             --device /dev/fuse \
+            --build-arg IMAGE_NAME=${{ env.IMAGE_NAME }} \
+            --build-arg IMAGE_REGISTRY=${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_PATH }} \
             -t ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
             -f ${{ env.CONTAINERFILE }} \
             .
