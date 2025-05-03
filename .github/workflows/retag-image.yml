@@ -1,0 +1,37 @@
+name: Build image
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: "Full image reference, including hash"
+        required: true
+        type: string
+      tag:
+        description: "New Image tag"
+        required: true
+        type: string
+      REGISTRY:
+        description: "The registry of the"
+        required: false
+        type: string
+        default: "ghcr.io"
+      REGISTRY_USER:
+        description: "The username to use for the registry"
+        required: false
+        type: string
+        default: "${{ github.actor }}"
+    secrets:
+      REGISTRY_TOKEN:
+        description: "The token to use for the registry"
+        required: true
+
+jobs:
+  retag-image:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: imjasonh/setup-crane@v0.1
+
+      - run: |
+          echo "${{ secrets.REGISTRY_TOKEN }}" | crane auth login ${{ inputs.REGISTRY }} --username ${{ inputs.REGISTRY_USER }} --password-stdin
+          crane tag ${{ inputs.image }} ${{ inputs.tag }}
