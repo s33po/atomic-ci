@@ -10,11 +10,10 @@ on:
         description: "The name of the image to build"
         required: true
         type: string
-      latest-tag:
-        description: "The final tag this image will get. Will be used to compare this image to the previous one."
+      previous-image:
+        description: "The previous version of this image. This will be used to compute the changelog."
         required: false
         type: string
-        default: "latest"
       image-description:
         description: "The description of the image to build"
         required: false
@@ -193,7 +192,7 @@ jobs:
         with:
           rechunk: "ghcr.io/hhd-dev/rechunk:v1.2.1"
           ref: "localhost/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
-          prev-ref: "${{ env.IMAGE_NAME }}:${{ inputs.latest-tag }}"
+          prev-ref: ${{ inputs.previous-image }}
           skip_compression: true
           version: ${{ steps.check.outputs.version }}
           pretty: ${{ steps.check.outputs.version }}
