@@ -135,7 +135,17 @@ jobs:
             -f ${{ env.CONTAINERFILE }} \
             .
 
-          sudo podman image inspect ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+      - name: Check image
+        id: check
+        shell: bash
+        env:
+          IMAGE_TAG: ${{ env.WORKING_TAG }}-${{ matrix.platform }}
+        run: |
+          INSPECT=$(sudo podman image inspect ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }})
+          echo "redhat-id=$(echo "$INSPECT" | jq -r '.[0].Labels["redhat.id"]')" >> $GITHUB_OUTPUT
+          echo "redhat-version-id=$(echo "$INSPECT" | jq -r '.[0].Labels["redhat.version-id"]')" >> $GITHUB_OUTPUT
+          echo "version=$(echo "$INSPECT" | jq -r '.[0].Labels["org.opencontainers.image.version"]')" >> $GITHUB_OUTPUT
+
           sudo podman run --rm ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} cat /etc/os-release
 
       - name: Setup Syft
@@ -169,7 +179,11 @@ jobs:
           ref: "localhost/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
           prev-ref: "${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
           skip_compression: true
-          # version: $ {{ env.CENTOS_VERSION }}
+          version: "${{ steps.check.outputs.version }}_<date>"
+          pretty: ${{ steps.check.outputs.version }}
+          labels: |
+            redhat.id=${{ steps.check.outputs.redhat-id }}
+            redhat.version-id=${{ steps.check.outputs.redhat-version-id }}
 
       - name: Load Image
         if: github.event_name != 'pull_request'
@@ -345,7 +359,9 @@ jobs:
         id: load-outputs
         run: |
           DIGESTS_JSON=$(jq -n '{}')
+          ls -lR /tmp/artifacts/
           for digest_file in /tmp/artifacts/*.txt; do
+            cat $digest_file
             # Extract the platform from the file name
             PLATFORM=$(basename $digest_file | rev | cut -d'-' -f1 | rev | cut -d'.' -f1)
             DIGEST=$(cat $digest_file)
@@ -353,6 +369,7 @@ jobs:
             DIGESTS_JSON=$(echo "$DIGESTS_JSON" | jq --arg key "$PLATFORM" --arg value "$DIGEST" '. + {($key): $value}')
           done
           echo "DIGESTS_JSON=$(echo $DIGESTS_JSON | jq -c '.')" >> $GITHUB_OUTPUT
+          echo $DIGESTS_JSON | jq -c '.'
 
       - name: Create Manifest
         if: github.event_name != 'pull_request'
@@ -407,6 +424,7 @@ jobs:
           echo "DIGEST=$DIGEST" >> $GITHUB_OUTPUT
           echo "IMAGE=$IMAGE_REF" >> $GITHUB_OUTPUT
           echo "Pushed manifest to $IMAGE_REF with digest $DIGEST"
+          podman image inspect $IMAGE_REF:$tag | jq .
 
   # Cosign throws errors when ran inside the Fedora container for one reason or another
   # so we move this to another step in order to run on Ubuntu
