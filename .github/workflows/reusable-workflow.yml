@@ -118,6 +118,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          submodules: true
 
       - name: Build image
         id: build
@@ -178,8 +180,10 @@ jobs:
 
           IMAGE=${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
           IMAGE_DIGEST=$(podman image inspect --format '{{.Digest}}' $IMAGE)
+          VERSION_ID=$(podman image inspect --format '{{.Labels["redhat.version-id"]}}' $IMAGE)
           echo "image=$IMAGE" >> $GITHUB_OUTPUT
           echo "digest=$IMAGE_DIGEST" >> $GITHUB_OUTPUT
+          echo "version-id=$VERSION_ID" >> $GITHUB_OUTPUT
 
       # Push the image to GHCR (Image Registry)
       - name: Push to registry
@@ -206,16 +210,14 @@ jobs:
       - name: Sign Image
         if: github.event_name != 'pull_request'
         env:
-          TAGS: ${{ steps.push.outputs.digest }}
           COSIGN_EXPERIMENTAL: false
           COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
-          IMAGE_REF: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_PATH }}/${{ env.IMAGE_NAME }}
-        run: cosign sign -y --key env://COSIGN_PRIVATE_KEY ${IMAGE_REF}@${{ steps.push.outputs.digest }}
+        run: cosign sign -y --key env://COSIGN_PRIVATE_KEY ${{ steps.push.outputs.image-ref }}@${{ steps.push.outputs.digest }}
 
       - name: Add SBOM Attestation
         if: github.event_name != 'pull_request'
         env:
-          IMAGE: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_PATH }}/${{ env.IMAGE_NAME }}
+          IMAGE: ${{ steps.push.outputs.image-ref }}
           DIGEST: ${{ steps.push.outputs.digest }}
           COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
           SBOM_OUTPUT: ${{ steps.generate-sbom.outputs.OUTPUT_PATH }}
@@ -233,9 +235,12 @@ jobs:
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
           PLATFORM: ${{ matrix.platform }}
           DIGEST: ${{ steps.push.outputs.digest }}
+          VERSION_ID: ${{ steps.load.outputs.version-id }}
         run: |
           mkdir -p /tmp/outputs/digests
           echo "${DIGEST}" > /tmp/outputs/digests/${IMAGE_NAME}-${PLATFORM}.txt
+          # mkdir -p /tmp/outputs/versions
+          # echo "${DIGEST}" > /tmp/outputs/versions/${IMAGE_NAME}-${PLATFORM}.txt
 
       - name: Upload Output Artifacts
         if: github.event_name != 'pull_request'
