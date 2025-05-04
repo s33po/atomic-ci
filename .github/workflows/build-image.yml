@@ -212,6 +212,9 @@ jobs:
         env:
           IMAGE_TAG: ${{ env.WORKING_TAG }}-${{ matrix.platform }}
         run: |
+          echo "# Changelog" >> $GITHUB_STEP_SUMMARY
+          cat ${{ steps.rechunk.outputs.changelog }} >> $GITHUB_STEP_SUMMARY
+
           IMAGE=$(podman pull ${{ steps.rechunk.outputs.ref }})
           sudo rm -rf ${{ steps.rechunk.outputs.location }}
           podman image tag $IMAGE ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
