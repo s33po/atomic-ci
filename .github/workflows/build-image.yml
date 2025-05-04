@@ -70,7 +70,7 @@ on:
         required: true
       SIGNING_SECRET:
         description: "The private key used to sign the image"
-        required: true
+        required: false
 
 env:
   IMAGE_NAME: ${{ inputs.image-name }}
@@ -78,6 +78,7 @@ env:
   WORKING_TAG: "run-${{ github.run_number }}"
   IMAGE_REGISTRY: ${{ inputs.image-registry }}
   IMAGE_PATH: ${{ inputs.image-path }}
+  SIGNING_ENABLED: ${{ secrets.SIGNING_SECRET != '' }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref || github.run_id }}-${{ inputs.image-name }}
@@ -121,7 +122,6 @@ jobs:
 
     steps:
       - name: Login to Container Registry
-        if: github.event_name != 'pull_request'
         run: |
           echo ${{ secrets.REGISTRY_TOKEN }} | podman login -u ${{ inputs.REGISTRY_USER }} --password-stdin ${{ env.IMAGE_REGISTRY }}
           echo ${{ secrets.REGISTRY_TOKEN }} | docker login -u ${{ inputs.REGISTRY_USER }} --password-stdin ${{ env.IMAGE_REGISTRY }}
@@ -192,7 +192,6 @@ jobs:
           echo "OUTPUT_PATH=${OUTPUT_PATH}" >> $GITHUB_OUTPUT
 
       - name: Run Rechunker
-        if: github.event_name != 'pull_request'
         id: rechunk
         uses: hhd-dev/rechunk@ca77507401f8700bb0b25ebecbbf980a078cd180 # v1.2.2
         with:
@@ -207,7 +206,6 @@ jobs:
             redhat.version-id=${{ steps.check.outputs.redhat-version-id }}
 
       - name: Load Image
-        if: github.event_name != 'pull_request'
         id: load
         env:
           IMAGE_TAG: ${{ env.WORKING_TAG }}-${{ matrix.platform }}
@@ -248,7 +246,6 @@ jobs:
 
       # Push the image to GHCR (Image Registry)
       - name: Push to registry
-        if: github.event_name != 'pull_request'
         id: push
         env:
           IMAGE_TAG: ${{ env.WORKING_TAG }}-${{ matrix.platform }}
@@ -266,17 +263,17 @@ jobs:
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@3454372f43399081ed03b604cb2d021dabca52bb # v3.8.2
-        if: github.event_name != 'pull_request'
+        if: ${{ github.event_name != 'pull_request' && env.SIGNING_ENABLED == 'true' }}
 
       - name: Sign Image
-        if: github.event_name != 'pull_request'
+        if: ${{ github.event_name != 'pull_request' && env.SIGNING_ENABLED == 'true' }}
         env:
           COSIGN_EXPERIMENTAL: false
           COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
         run: cosign sign -y --key env://COSIGN_PRIVATE_KEY ${{ steps.push.outputs.image-ref }}@${{ steps.push.outputs.digest }}
 
       - name: Add SBOM Attestation
-        if: github.event_name != 'pull_request'
+        if: ${{ github.event_name != 'pull_request' && env.SIGNING_ENABLED == 'true' }}
         env:
           IMAGE: ${{ steps.push.outputs.image-ref }}
           DIGEST: ${{ steps.push.outputs.digest }}
@@ -291,7 +288,6 @@ jobs:
             "${IMAGE}@${DIGEST}"
 
       - name: Create Job Outputs
-        if: github.event_name != 'pull_request'
         env:
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
           PLATFORM: ${{ matrix.platform }}
@@ -304,7 +300,6 @@ jobs:
           # echo "${DIGEST}" > /tmp/outputs/versions/${IMAGE_NAME}-${PLATFORM}.txt
 
       - name: Upload Output Artifacts
-        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ env.IMAGE_NAME }}-${{ matrix.platform }}
@@ -331,6 +326,7 @@ jobs:
       image: ${{ steps.push_manifest.outputs.image }}
       digest: ${{ steps.push_manifest.outputs.digest }}
       image-id: ${{ steps.push_manifest.outputs.image-id }}
+      signing-enabled: ${{ env.SIGNING_ENABLED}}
     steps:
       - name: Install dependencies
         run: |
@@ -375,7 +371,6 @@ jobs:
       - name: Image Metadata
         uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5
         id: metadata
-        if: github.event_name != 'pull_request'
         with:
           tags: |
             type=raw,value=${{ env.WORKING_TAG }}
@@ -392,7 +387,6 @@ jobs:
             org.opencontainers.image.vendor=${{ github.repository_owner }}
 
       - name: Fetch Build Outputs
-        if: github.event_name != 'pull_request'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: ${{ env.IMAGE_NAME }}-*
@@ -400,7 +394,6 @@ jobs:
           path: /tmp/artifacts
 
       - name: Load Outputs
-        if: github.event_name != 'pull_request'
         id: load-outputs
         run: |
           DIGESTS_JSON=$(jq -n '{}')
@@ -417,7 +410,6 @@ jobs:
           echo $DIGESTS_JSON | jq -c '.'
 
       - name: Create Manifest
-        if: github.event_name != 'pull_request'
         id: create-manifest
         env:
           IMAGE_REF: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_PATH }}/${{ env.IMAGE_NAME }}
@@ -426,7 +418,6 @@ jobs:
           echo "MANIFEST=${{ env.IMAGE_REF }}" >> $GITHUB_OUTPUT
 
       - name: Populate Manifest
-        if: github.event_name != 'pull_request'
         env:
           MANIFEST: ${{ steps.create-manifest.outputs.MANIFEST }}
           DIGESTS_JSON: ${{ steps.load-outputs.outputs.DIGESTS_JSON }}
@@ -450,11 +441,9 @@ jobs:
           done <<< "$LABELS"
 
       - name: Login to Container Registry
-        if: github.event_name != 'pull_request'
         run: echo ${{ secrets.REGISTRY_TOKEN }} | podman login -u ${{ inputs.REGISTRY_USER }} --password-stdin ${{ env.IMAGE_REGISTRY }}
 
       - name: Push Manifest
-        if: github.event_name != 'pull_request'
         id: push_manifest
         env:
           MANIFEST: ${{ steps.create-manifest.outputs.MANIFEST }}
@@ -479,7 +468,7 @@ jobs:
   # so we move this to another step in order to run on Ubuntu
   sign:
     needs: manifest
-    if: github.event_name != 'pull_request'
+    if: ${{ github.event_name != 'pull_request' && needs.manifest.outputs.signing-enabled == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
