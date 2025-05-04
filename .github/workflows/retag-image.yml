@@ -30,8 +30,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: imjasonh/setup-crane@31b88efe9de28ae0ffa220711af4b60be9435f6e # v0.4
+      - name: Install Crane
+        uses: imjasonh/setup-crane@31b88efe9de28ae0ffa220711af4b60be9435f6e # v0.4
 
-      - run: |
+      - name: Tag image
+        shell: bash
+        run: |
           echo "${{ secrets.REGISTRY_TOKEN }}" | crane auth login ${{ inputs.REGISTRY }} --username ${{ inputs.REGISTRY_USER }} --password-stdin
           crane tag ${{ inputs.image }} ${{ inputs.tag }}
