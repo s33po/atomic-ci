@@ -144,13 +144,17 @@ jobs:
             --security-opt=label=disable \
             --cap-add=all \
             --device /dev/fuse \
+            --timestamp=0 \
+            --iidfile /tmp/image-id \
             --build-arg IMAGE_NAME=${{ env.IMAGE_NAME }} \
             --build-arg IMAGE_REGISTRY=${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_PATH }} \
             -t ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
             -f ${{ env.CONTAINERFILE }} \
             .
 
+          echo "image-id=$(cat /tmp/image-id)" >> $GITHUB_OUTPUT
           echo "date=$(date -u +%Y\-%m\-%d\T%H\:%M\:%S\Z)" >> $GITHUB_OUTPUT
+          sudo podman image inspect ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} | jq .
 
       - name: Check image
         id: check
@@ -219,6 +223,7 @@ jobs:
           echo "redhat-id=$(echo "$INSPECT" | jq -r '.[0].Labels["redhat.id"]')" >> $GITHUB_OUTPUT
           echo "redhat-version-id=$(echo "$INSPECT" | jq -r '.[0].Labels["redhat.version-id"]')" >> $GITHUB_OUTPUT
           echo "version=$(echo "$INSPECT" | jq -r '.[0].Labels["org.opencontainers.image.version"]')" >> $GITHUB_OUTPUT
+          echo $INSPECT | jq .
 
       - name: Image Metadata
         uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5
