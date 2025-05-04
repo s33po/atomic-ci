@@ -52,6 +52,9 @@ on:
       digest:
         description: "The digest of the built image"
         value: ${{ jobs.manifest.outputs.digest }}
+      image-id:
+        description: "The image ID of the built image"
+        value: ${{ jobs.manifest.outputs.image-id }}
       # version:
       #   description: "The version of the built image"
       #   value: ${{ jobs.manifest.outputs.version }}
@@ -160,14 +163,14 @@ jobs:
         id: check
         shell: bash
         env:
-          IMAGE_TAG: ${{ env.WORKING_TAG }}-${{ matrix.platform }}
+          IMAGE_ID: ${{ steps.build.outputs.image-id }}
         run: |
-          INSPECT=$(sudo podman image inspect ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }})
+          INSPECT=$(sudo podman image inspect ${{ env.IMAGE_ID }} )
           echo "redhat-id=$(echo "$INSPECT" | jq -r '.[0].Labels["redhat.id"]')" >> $GITHUB_OUTPUT
           echo "redhat-version-id=$(echo "$INSPECT" | jq -r '.[0].Labels["redhat.version-id"]')" >> $GITHUB_OUTPUT
           echo "version=$(echo "$INSPECT" | jq -r '.[0].Labels["org.opencontainers.image.version"]')" >> $GITHUB_OUTPUT
 
-          sudo podman run --rm ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} cat /etc/os-release
+          sudo podman run --rm ${{ env.IMAGE_ID }} cat /etc/os-release
 
       - name: Setup Syft
         id: setup-syft
@@ -178,26 +181,23 @@ jobs:
         id: generate-sbom
         if: github.event_name != 'pull_request'
         env:
-          IMAGE: ${{ env.IMAGE_NAME }}
-          IMAGE_TAG: ${{ env.WORKING_TAG }}-${{ matrix.platform }}
+          IMAGE_ID: ${{ steps.build.outputs.image-id }}
           SYFT_CMD: ${{ steps.setup-syft.outputs.cmd }}
         run: |
           sudo systemctl start podman.socket
 
           OUTPUT_PATH="$(mktemp -d)/sbom.json"
           export SYFT_PARALLELISM=$(($(nproc)*2))
-          sudo $SYFT_CMD ${IMAGE}:${IMAGE_TAG} -o spdx-json=${OUTPUT_PATH}
+          sudo $SYFT_CMD ${IMAGE_ID} -o spdx-json=${OUTPUT_PATH}
           echo "OUTPUT_PATH=${OUTPUT_PATH}" >> $GITHUB_OUTPUT
 
       - name: Run Rechunker
         if: github.event_name != 'pull_request'
         id: rechunk
         uses: hhd-dev/rechunk@ca77507401f8700bb0b25ebecbbf980a078cd180 # v1.2.2
-        env:
-          IMAGE_TAG: ${{ env.WORKING_TAG }}-${{ matrix.platform }}
         with:
           rechunk: "ghcr.io/hhd-dev/rechunk:v1.2.1"
-          ref: "localhost/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
+          ref: ${{ steps.build.outputs.image-id }}
           prev-ref: ${{ inputs.previous-image }}
           skip_compression: true
           version: ${{ steps.check.outputs.version }}
@@ -212,8 +212,10 @@ jobs:
         env:
           IMAGE_TAG: ${{ env.WORKING_TAG }}-${{ matrix.platform }}
         run: |
-          echo "# Changelog" >> $GITHUB_STEP_SUMMARY
-          cat ${{ steps.rechunk.outputs.changelog }} >> $GITHUB_STEP_SUMMARY
+          if [ -s ${{ steps.rechunk.outputs.changelog }} ]; then
+            echo "# Changelog" >> $GITHUB_STEP_SUMMARY
+            cat ${{ steps.rechunk.outputs.changelog }} >> $GITHUB_STEP_SUMMARY
+          fi
 
           IMAGE=$(podman pull ${{ steps.rechunk.outputs.ref }})
           sudo rm -rf ${{ steps.rechunk.outputs.location }}
@@ -223,6 +225,7 @@ jobs:
           INSPECT=$(podman image inspect $IMAGE)
           echo "image=$IMAGE" >> $GITHUB_OUTPUT
           echo "digest=$(echo "$INSPECT" | jq -r '.[0].Digest')" >> $GITHUB_OUTPUT
+          echo "image-id=$(echo "$INSPECT" | jq -r '("sha256:" + .[0].Id)')" >> $GITHUB_OUTPUT
           echo "redhat-id=$(echo "$INSPECT" | jq -r '.[0].Labels["redhat.id"]')" >> $GITHUB_OUTPUT
           echo "redhat-version-id=$(echo "$INSPECT" | jq -r '.[0].Labels["redhat.version-id"]')" >> $GITHUB_OUTPUT
           echo "version=$(echo "$INSPECT" | jq -r '.[0].Labels["org.opencontainers.image.version"]')" >> $GITHUB_OUTPUT
@@ -232,7 +235,7 @@ jobs:
         uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5
         id: metadata
         with:
-          images: ${{ steps.load.outputs.image }}@${{ steps.load.outputs.digest }}
+          images: ${{ steps.load.outputs.image-id }}
           labels: |
             containers.bootc=1
             org.opencontainers.image.created=${{ steps.build.outputs.date }}
@@ -252,7 +255,7 @@ jobs:
           IMAGE_REF: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_PATH }}/${{ env.IMAGE_NAME }}
         run: |
           set -x
-          podman tag ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} ${{ env.IMAGE_REF }}:${{ env.IMAGE_TAG }}
+          podman tag ${{ steps.load.outputs.image-id }} ${{ env.IMAGE_REF }}:${{ env.IMAGE_TAG }}
           for i in {1..3}; do
             podman push --digestfile=/tmp/digestfile ${{ env.IMAGE_REF }}:${{ env.IMAGE_TAG }} && break || sleep $((5 * i));
           done
@@ -325,8 +328,9 @@ jobs:
       packages: write
       id-token: write
     outputs:
-      image: ${{ steps.push_manifest.outputs.IMAGE }}
-      digest: ${{ steps.push_manifest.outputs.DIGEST }}
+      image: ${{ steps.push_manifest.outputs.image }}
+      digest: ${{ steps.push_manifest.outputs.digest }}
+      image-id: ${{ steps.push_manifest.outputs.image-id }}
     steps:
       - name: Install dependencies
         run: |
@@ -462,9 +466,14 @@ jobs:
           done <<< "$TAGS"
 
           DIGEST=$(cat /tmp/digestfile)
-          echo "DIGEST=$DIGEST" >> $GITHUB_OUTPUT
-          echo "IMAGE=$IMAGE_REF" >> $GITHUB_OUTPUT
+          echo "digest=$DIGEST" >> $GITHUB_OUTPUT
+          echo "image=$IMAGE_REF" >> $GITHUB_OUTPUT
+
+          INSPECT=$(podman manifest inspect $IMAGE_REF)
+          echo "image-id=$(echo "$INSPECT" | jq -r '("sha256:" + .[0].Id)')" >> $GITHUB_OUTPUT
+
           echo "Pushed manifest to $IMAGE_REF with digest $DIGEST"
+          echo $INSPECT | jq .
 
   # Cosign throws errors when ran inside the Fedora container for one reason or another
   # so we move this to another step in order to run on Ubuntu
