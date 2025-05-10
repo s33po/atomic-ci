@@ -1,0 +1,31 @@
+name: Test mirrors
+on:
+    workflow_dispatch:
+
+jobs:
+    test:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Test
+              shell: bash
+              run: |
+                set +e
+                mirror_list=$(curl -s https://kitten.mirrors.almalinux.org/mirrorlist/10-kitten/baseos | sort)
+
+                while IFS= read -r url; do
+                    fixed_url="${url//\$basearch/x86_64}"
+                    repomd_url="${fixed_url%/}/repodata/repomd.xml"
+                    echo "Repo: $repomd_url"
+
+                    xml_content=$(curl -sL "$repomd_url")
+                    timestamp=$(echo "$xml_content" | grep -oP '(?<=<revision>)[0-9]+(?=</revision>)')
+
+                    if [ -n "$timestamp" ]; then
+                        last_modified=$(date -d @"$timestamp")
+                    else
+                        last_modified="Unknown - not a valid repo"
+                    fi
+
+                    echo "Last Modified: $last_modified"
+                    echo "--------------------------------------"
+                done <<< "$mirror_list"
