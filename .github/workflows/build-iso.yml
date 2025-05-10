@@ -1,0 +1,166 @@
+name: Build ISO
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: "Full podman image reference, including hash"
+        required: true
+        type: string
+      image-name:
+        description: "Name of the image, will be used to name the file name ISO"
+        required: true
+        type: string
+      update_origin_ref:
+        description: "Image reference to update from (ie: {image}:latest)"
+        required: false
+        type: string
+      config-file:
+        description: "Path to the ISO configuration file"
+        required: true
+        type: string
+      platforms:
+        description: "The platforms to build the image for"
+        required: false
+        type: string
+        default: "amd64,arm64"
+      use_librepo:
+        description: "Use librepo to download the image"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  generate_matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Set matrix
+        id: set-matrix
+        run: |
+          # turn the comma separated string into a list
+          platforms=()
+          IFS=',' read -r -a platforms <<< "${{ inputs.platforms }}"
+
+          MATRIX="{\"include\":[]}"
+          for platform in "${platforms[@]}"; do
+            MATRIX=$(echo $MATRIX | jq ".include += [{\"platform\": \"$platform\"}]")
+          done
+          echo "matrix=$(echo $MATRIX | jq -c '.')" >> $GITHUB_OUTPUT
+
+  build-iso:
+    runs-on: ${{ matrix.platform == 'amd64' && 'ubuntu-24.04' || 'ubuntu-24.04-arm' }}
+    needs: generate_matrix
+    strategy:
+      fail-fast: false
+      matrix: ${{fromJson(needs.generate_matrix.outputs.matrix)}}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          submodules: true
+
+      - name: Prepare ISO configuration
+        shell: bash
+        run: |
+          sed -i 's#<UPDATE_IMAGE_REF>#${{ inputs.update_origin_ref }}#g' ${{ inputs.config-file }}
+          cat ${{ inputs.config-file }}
+
+      - name: Pull Image
+        shell: bash
+        run: sudo podman pull ${{ inputs.image }}
+
+      - name: Build Bootable Image
+        id: build
+        shell: bash
+        env:
+          CONFIG_FILE: ${{ inputs.config-file }}
+          IMAGE: ${{ inputs.image }}
+          BOOTC_IMAGE_BUILDER_IMAGE: 'quay.io/centos-bootc/bootc-image-builder:latest'
+          USE_LIBREPO: ${{ inputs.use_librepo }}
+          IMAGE_TYPE: iso
+          ROOTFS: ''
+        run: |
+          DESIRED_UID=$(id -u)
+          DESIRED_GID=$(id -g)
+
+          CONFIG_FILE_EXTENSION="${CONFIG_FILE##*.}"
+          mkdir -p ./output
+
+          INPUT_ARGS=""
+          [ "${USE_LIBREPO}" == "true" ] && INPUT_ARGS+="--use-librepo=True " || INPUT_ARGS+="--use-librepo=False "
+          [ -n "${ROOTFS}" ] && INPUT_ARGS+="--rootfs=${ROOTFS} "
+
+          sudo podman run \
+            --rm \
+            --privileged \
+            --pull=newer \
+            --security-opt label=type:unconfined_t \
+            -v $CONFIG_FILE:/config.$CONFIG_FILE_EXTENSION:ro \
+            -v ./output:/output \
+            -v /var/lib/containers/storage:/var/lib/containers/storage \
+            $BOOTC_IMAGE_BUILDER_IMAGE \
+            --type ${IMAGE_TYPE} \
+            --local \
+            --chown $DESIRED_UID:$DESIRED_GID \
+            ${INPUT_ARGS} \
+            $IMAGE
+
+          case "${IMAGE_TYPE}" in
+          "raw"|"ami") OUTPUT_DIRECTORY="./output/image" ;;
+          "iso") OUTPUT_DIRECTORY="./output/bootiso" ;;
+          "vhd") OUTPUT_DIRECTORY="./output/vpc" ;;
+          *) OUTPUT_DIRECTORY="./output/${IMAGE_TYPE}" ;;
+          esac
+
+          ISO_PATH=(${OUTPUT_DIRECTORY}/*)
+
+          # Create a checksum of the output file, stored in the same directory
+          CHECKSUM=$(sha256sum $ISO_PATH | awk '{print $1}')
+          CHECKSUM_PATH=${ISO_PATH}-CHECKSUM
+          echo $CHECKSUM > ${CHECKSUM_PATH}
+
+          echo "OUTPUT_DIRECTORY=$OUTPUT_DIRECTORY" >> $GITHUB_OUTPUT
+          echo "CHECKSUM=$CHECKSUM" >> $GITHUB_OUTPUT
+          echo "CHECKSUM_PATH=$CHECKSUM_PATH" >> $GITHUB_OUTPUT
+          echo "ISO_PATH=$ISO_PATH" >> $GITHUB_OUTPUT
+
+      # - name: Build ISO
+      #   id: build
+      #   uses: ublue-os/bootc-image-builder-action@main
+      #   with:
+      #     image: ${{ inputs.image }}
+      #     type: iso
+      #     use-librepo: ${{ inputs.use_librepo }}
+      #     config-file: ${{ inputs.config-file }}
+
+      - name: Rename ISO
+        id: rename
+        env:
+          IMAGE_NAME: ${{ inputs.image-name }}-${{ matrix.platform }}-live.iso
+          OUTPUT_PATH: output-${{ matrix.platform }}
+        run: |
+          set -x
+          mkdir -p ${{ env.OUTPUT_PATH }}
+          OUTPUT_DIRECTORY="$(realpath ${{ env.OUTPUT_PATH }})"
+
+          mv ${{ steps.build.outputs.ISO_PATH }} "${OUTPUT_DIRECTORY}/${IMAGE_NAME}"
+          mv ${{ steps.build.outputs.CHECKSUM_PATH }} "${OUTPUT_DIRECTORY}/${IMAGE_NAME}-CHECKSUM"
+
+          echo "output_directory=$OUTPUT_DIRECTORY" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload ISOs and Checksum to Job Artifacts
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ inputs.image-name }}-${{ matrix.platform }}-live
+          path: ${{ steps.rename.outputs.output_directory }}
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+
+      - name: Summary
+        run: |
+          echo "Artifact URL: ${{ steps.upload.outputs.artifact-url }}" >> $GITHUB_STEP_SUMMARY
+          echo "Digest: ${{ steps.upload.outputs.artifact-digest }}" >> $GITHUB_STEP_SUMMARY
