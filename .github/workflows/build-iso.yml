@@ -14,6 +14,11 @@ on:
         description: "Image reference to update from (ie: {image}:latest)"
         required: false
         type: string
+      update_is_signed:
+        description: "Whether the image is signed or not"
+        required: false
+        type: boolean
+        default: true
       config-file:
         description: "Path to the ISO configuration file"
         required: true
@@ -64,7 +69,10 @@ jobs:
       - name: Prepare ISO configuration
         shell: bash
         run: |
+          [ "${{ inputs.update_is_signed }}" = "true" ] && SIG="--enforce-container-sigpolicy"
+
           sed -i 's#<UPDATE_IMAGE_REF>#${{ inputs.update_origin_ref }}#g' ${{ inputs.config-file }}
+          sed -i "s#<IMAGE_SIGNED>#${SIG}#g" ${{ inputs.config-file }}
           cat ${{ inputs.config-file }}
 
       - name: Pull Image
