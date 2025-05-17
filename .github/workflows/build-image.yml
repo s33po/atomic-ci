@@ -243,6 +243,20 @@ jobs:
           labels: |
             redhat.id=${{ steps.check.outputs.redhat-id }}
             redhat.version-id=${{ steps.check.outputs.redhat-version-id }}
+          changelog: |
+            # ${{ inputs.image-name }} <pretty>
+            ## Version: <version>
+
+            Major Components:
+              - Kernel: <relver:kernel>
+              - Systemd: <relver:systemd>
+              - Glibc: <version:glibc>
+
+            ## Changes since last version (<previous>):
+            ### Commits
+            <commits>
+            ### Package Changes:
+            <pkgupd>
 
       - name: Load Image
         id: load
