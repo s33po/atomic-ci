@@ -239,7 +239,7 @@ jobs:
           prev-ref: ${{ inputs.previous-image }}
           skip_compression: true
           version: ${{ steps.check.outputs.version }}
-          pretty: ${{ steps.check.outputs.version }}
+          pretty: ${{ steps.check.outputs.redhat-version-id }}
           labels: |
             redhat.id=${{ steps.check.outputs.redhat-id }}
             redhat.version-id=${{ steps.check.outputs.redhat-version-id }}
@@ -257,9 +257,6 @@ jobs:
             <commits>
             ### Package Changes:
             <pkgupd>
-
-            ## Image Information
-            <imginfo>
 
       - name: Load Image
         id: load
