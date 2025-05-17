@@ -244,19 +244,22 @@ jobs:
             redhat.id=${{ steps.check.outputs.redhat-id }}
             redhat.version-id=${{ steps.check.outputs.redhat-version-id }}
           changelog: |
-            # ${{ inputs.image-name }} <pretty>
+            # Changelog ${{ inputs.image-name }} <pretty>
             ## Version: <version>
 
             Major Components:
               - Kernel: <relver:kernel>
               - Systemd: <relver:systemd>
-              - Glibc: <version:glibc>
+              - Glibc: <relver:glibc>
 
             ## Changes since last version (<previous>):
             ### Commits
             <commits>
             ### Package Changes:
             <pkgupd>
+
+            ## Image Information
+            <imginfo>
 
       - name: Load Image
         id: load
@@ -266,7 +269,6 @@ jobs:
           ls -l ${{ steps.rechunk.outputs.changelog }}
           cat ${{ steps.rechunk.outputs.changelog }}
           if [ -s ${{ steps.rechunk.outputs.changelog }} ]; then
-            echo "# Changelog" >> $GITHUB_STEP_SUMMARY
             cat ${{ steps.rechunk.outputs.changelog }} >> $GITHUB_STEP_SUMMARY
           fi
 
