@@ -249,6 +249,8 @@ jobs:
         env:
           IMAGE_TAG: ${{ env.WORKING_TAG }}-${{ matrix.platform }}
         run: |
+          ls -l ${{ steps.rechunk.outputs.changelog }}
+          cat ${{ steps.rechunk.outputs.changelog }}
           if [ -s ${{ steps.rechunk.outputs.changelog }} ]; then
             echo "# Changelog" >> $GITHUB_STEP_SUMMARY
             cat ${{ steps.rechunk.outputs.changelog }} >> $GITHUB_STEP_SUMMARY
