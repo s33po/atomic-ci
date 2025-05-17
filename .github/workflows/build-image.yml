@@ -45,6 +45,10 @@ on:
         required: false
         type: string
         default: "${{ github.actor }}"
+      upstream-public-key:
+        description: "The public key of the upstream image"
+        required: false
+        type: string
     outputs:
       image-ref:
         description: "The image reference of the built image"
@@ -86,6 +90,7 @@ concurrency:
 
 jobs:
   generate_matrix:
+    name: Prepare build
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
@@ -102,6 +107,40 @@ jobs:
             MATRIX=$(echo $MATRIX | jq ".include += [{\"platform\": \"$platform\"}]")
           done
           echo "matrix=$(echo $MATRIX | jq -c '.')" >> $GITHUB_OUTPUT
+
+      - name: Install Cosign
+        if: ${{ inputs.upstream-public-key != '' }}
+        uses: sigstore/cosign-installer@3454372f43399081ed03b604cb2d021dabca52bb # v3.8.2
+
+      - name: Checkout
+        if: ${{ inputs.upstream-public-key != '' }}
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          submodules: true
+
+      - name: Extract upstream
+        if: ${{ inputs.upstream-public-key != '' }}
+        id: extract
+        run: |
+          # Install Dockerfile parser
+          pip3 install dockerfile-parse
+          # Extract the last FROM image using Python
+          upstream=$(python3 - << 'EOF'
+          from dockerfile_parse import DockerfileParser
+          with open("${{ inputs.containerfile }}", "r") as f:
+              dfp = DockerfileParser(fileobj=f)
+              froms = [s['value'].split()[0] for s in dfp.structure if s['instruction'] == 'FROM']
+              print(froms[-1])
+          EOF
+          )
+          echo "upstream-image=$upstream" >> $GITHUB_OUTPUT
+
+      - name: Verify signature
+        if: ${{ inputs.upstream-public-key != '' }}
+        id: verify
+        run: |
+          echo "Verifying signature for ${{ steps.extract.outputs.upstream-image }}"
+          cosign verify --key ${{ inputs.upstream-public-key }} ${{ steps.extract.outputs.upstream-image }} | jq .
 
   build_push:
     name: Build and push image
