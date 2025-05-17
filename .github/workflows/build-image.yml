@@ -335,8 +335,6 @@ jobs:
         run: |
           mkdir -p /tmp/outputs/digests
           echo "${DIGEST}" > /tmp/outputs/digests/${IMAGE_NAME}-${PLATFORM}.txt
-          # mkdir -p /tmp/outputs/versions
-          # echo "${DIGEST}" > /tmp/outputs/versions/${IMAGE_NAME}-${PLATFORM}.txt
 
       - name: Upload Output Artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
