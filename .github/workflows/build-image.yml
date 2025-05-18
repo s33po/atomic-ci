@@ -254,18 +254,18 @@ jobs:
             redhat.id=${{ steps.check.outputs.redhat-id }}
             redhat.version-id=${{ steps.check.outputs.redhat-version-id }}
           changelog: |
-            # Changelog ${{ inputs.image-name }} <pretty> ${{ matrix.platform }}
-            ## Version: <version>
+            ## Changelog ${{ inputs.image-name }} <pretty> ${{ matrix.platform }}
+            ### Version: <version>
 
             Major Components:
               - Kernel: <relver:kernel>
               - Systemd: <relver:systemd>
               - Glibc: <relver:glibc>
 
-            ## Changes since last version (<previous>):
-            ### Commits
+            ### Changes since last version (<previous>):
+            #### Commits
             <commits>
-            ### Package Changes
+            #### Package Changes
             <pkgupd>
 
       - name: Upload ChangeLog
