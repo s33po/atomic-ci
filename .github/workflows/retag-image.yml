@@ -7,7 +7,7 @@ on:
         required: true
         type: string
       tag:
-        description: "New Image tag"
+        description: "New Image tag(s)"
         required: true
         type: string
       REGISTRY:
@@ -37,4 +37,9 @@ jobs:
         shell: bash
         run: |
           echo "${{ secrets.REGISTRY_TOKEN }}" | crane auth login ${{ inputs.REGISTRY }} --username ${{ inputs.REGISTRY_USER }} --password-stdin
-          crane tag ${{ inputs.image }} ${{ inputs.tag }}
+          # Read tags into an array (strips trailing newline) and loop
+          mapfile -t tags <<< "${{ inputs.tag }}"
+          for tag in "${tags[@]}"; do
+            [[ -z "$tag" ]] && continue
+            crane tag ${{ inputs.image }} "$tag"
+          done

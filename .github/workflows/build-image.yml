@@ -445,7 +445,6 @@ jobs:
         with:
           tags: |
             type=raw,value=${{ env.WORKING_TAG }}
-            type=raw,value=${{ needs.build_push.outputs.version }}
             type=sha,enable=${{ github.event_name != 'pull_request' }}
             type=ref,event=pr
           labels: |
