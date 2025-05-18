@@ -54,6 +54,15 @@ on:
         required: false
         type: boolean
         default: false
+      changelog-snippet:
+        description: "Middle snippet of the changelog, to highlight major components"
+        required: false
+        type: string
+        default: |
+          Major Components:
+            - Kernel: <relver:kernel>
+            - Systemd: <relver:systemd>
+            - Glibc: <relver:glibc>
     outputs:
       image-ref:
         description: "The image reference of the built image"
@@ -256,11 +265,7 @@ jobs:
           changelog: |
             ## Changelog ${{ inputs.image-name }} <pretty> ${{ matrix.platform }}
             ### Version: <version>
-
-            Major Components:
-              - Kernel: <relver:kernel>
-              - Systemd: <relver:systemd>
-              - Glibc: <relver:glibc>
+            ${{ inputs.changelog-snippet }}
 
             ### Changes since last version (<previous>):
             #### Commits
