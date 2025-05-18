@@ -37,6 +37,23 @@ jobs:
 
           ls -laR /tmp/changelogs
           for changelog in /tmp/changelogs/*.txt; do
+            # Remove empty Package Changes
+            sed -i '/^### Package Changes$/{
+            N
+            N
+            /### Package Changes\n[[:space:]]*-[[:space:]]*\n[[:space:]]*$/d
+            }' $changelog
+
+            # Remove empty Commits
+            sed -i '/^### Commits$/{
+            N
+            N
+            /### Commits\n[[:space:]]*-[[:space:]]*\n[[:space:]]*$/d
+            }' $changelog
+
+            # If there are no changes, remove the section altogether
+            sed -zi 's/\n## Changes since[^#]*$//' $changelog
+
             cat $changelog >> ./changelog.md
           done
 

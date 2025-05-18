@@ -263,7 +263,7 @@ jobs:
             ## Changes since last version (<previous>):
             ### Commits
             <commits>
-            ### Package Changes:
+            ### Package Changes
             <pkgupd>
 
       - name: Upload ChangeLog
