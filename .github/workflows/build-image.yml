@@ -247,7 +247,7 @@ jobs:
           ref: ${{ steps.build.outputs.image-id }}
           prev-ref: ${{ inputs.previous-image }}
           skip_compression: true
-          version: ${{ steps.check.outputs.version }}
+          version: "${{ steps.check.outputs.version }}.0"
           pretty: ${{ steps.check.outputs.redhat-version-id }}
           revision: ${{ github.sha }}
           labels: |
