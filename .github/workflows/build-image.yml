@@ -252,7 +252,7 @@ jobs:
             redhat.id=${{ steps.check.outputs.redhat-id }}
             redhat.version-id=${{ steps.check.outputs.redhat-version-id }}
           changelog: |
-            # Changelog ${{ inputs.image-name }} <pretty>
+            # Changelog ${{ inputs.image-name }} <pretty> ${{ matrix.platform }}
             ## Version: <version>
 
             Major Components:
