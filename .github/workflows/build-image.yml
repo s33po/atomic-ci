@@ -247,7 +247,7 @@ jobs:
           ref: ${{ steps.build.outputs.image-id }}
           prev-ref: ${{ inputs.previous-image }}
           skip_compression: true
-          version: "${{ steps.check.outputs.version }}.0"
+          version: ${{ steps.check.outputs.version }}
           pretty: ${{ steps.check.outputs.redhat-version-id }}
           revision: ${{ github.sha }}
           labels: |
@@ -445,6 +445,7 @@ jobs:
         with:
           tags: |
             type=raw,value=${{ env.WORKING_TAG }}
+            type=raw,value=${{ needs.build_push.outputs.version }}
             type=sha,enable=${{ github.event_name != 'pull_request' }}
             type=ref,event=pr
           labels: |
