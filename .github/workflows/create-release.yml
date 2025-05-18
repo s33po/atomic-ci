@@ -18,11 +18,6 @@ on:
         description: "The latest image reference"
         required: true
         type: string
-      files:
-        description: "The files to include in the release"
-        required: false
-        type: string
-        default: ""
 permissions:
   contents: write
 
@@ -38,11 +33,18 @@ jobs:
           merge-multiple: true
           path: /tmp/changelogs
 
+      - name: Fetch ISOs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: ${{ inputs.image-name }}-*-live
+          merge-multiple: true
+          path: /tmp/isos
+
       - name: Prepare Release
         id: prepare-release
         shell: bash
         run: |
-          echo "Automated release for ${{ inputs.image-name }} version `${{ inputs.version }}`." > ./changelog.md
+          echo "Automated release for ${{ inputs.image-name }} version \`${{ inputs.version }}\`." > ./changelog.md
 
           for changelog in /tmp/changelogs/*.txt; do
             # Remove empty Package Changes
@@ -65,8 +67,7 @@ jobs:
             cat $changelog >> ./changelog.md
           done
 
-          # multiline heredoc echo to changelog.md
-          echo <<EOF >> ./changelog.md
+          cat <<'EOF' >> ./changelog.md
           ## How to rebase
 
           If you're already using this image, upgrade with the following command:
@@ -78,7 +79,7 @@ jobs:
           To switch to this image from another, type the following command in your terminal:
 
           ```bash
-          sudo bootc switch ${{ inputs.latest-image-ref}}
+          sudo bootc switch ${{ inputs.latest-image-ref }}
           ```
           EOF
 
@@ -89,4 +90,4 @@ jobs:
           tag_name: ${{ inputs.version }}
           body_path: ./changelog.md
           make_latest: true
-          files: ${{ inputs.files }}
+          files: /tmp/isos/*
