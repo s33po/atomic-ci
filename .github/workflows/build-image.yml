@@ -59,15 +59,15 @@ on:
       image-id:
         description: "The image ID of the built image"
         value: ${{ jobs.manifest.outputs.image-id }}
-      # version:
-      #   description: "The version of the built image"
-      #   value: ${{ jobs.manifest.outputs.version }}
-      # redhat-id:
-      #   description: "The redhat.id label of the built image"
-      #   value: ${{ jobs.manifest.outputs.redhat-id }}
-      # redhat-version-id:
-      #   description: "The redhat.version-id label of the built image"
-      #   value: ${{ jobs.manifest.outputs.redhat-version-id }}
+      version:
+        description: "The version of the built image"
+        value: ${{ jobs.build_push.outputs.version }}
+      redhat-id:
+        description: "The redhat.id label of the built image"
+        value: ${{ jobs.build_push.outputs.redhat-id }}
+      redhat-version-id:
+        description: "The redhat.version-id label of the built image"
+        value: ${{ jobs.build_push.outputs.redhat-version-id }}
     secrets:
       REGISTRY_TOKEN:
         description: "The token to use for the registry"
@@ -158,6 +158,9 @@ jobs:
     outputs:
       image-ref: ${{ steps.push.outputs.image-ref }}
       digest: ${{ steps.push.outputs.digest }}
+      redhat-id: ${{ steps.check.outputs.redhat-id }}
+      redhat-version-id: ${{ steps.check.outputs.redhat-version-id }}
+      version: ${{ steps.load.outputs.version }}
 
     steps:
       - name: Login to Container Registry
@@ -257,6 +260,15 @@ jobs:
             <commits>
             ### Package Changes:
             <pkgupd>
+
+      - name: Upload ChangeLog
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: changelog-${{ env.IMAGE_NAME }}-${{ matrix.platform }}
+          retention-days: 1
+          if-no-files-found: error
+          path: |
+            ${{ steps.rechunk.outputs.changelog }}
 
       - name: Load Image
         id: load

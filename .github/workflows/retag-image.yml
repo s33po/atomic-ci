@@ -1,4 +1,4 @@
-name: Build image
+name: Retag image
 on:
   workflow_call:
     inputs:
@@ -11,7 +11,7 @@ on:
         required: true
         type: string
       REGISTRY:
-        description: "The registry of the"
+        description: "The registry where the image will be pushed"
         required: false
         type: string
         default: "ghcr.io"
