@@ -108,6 +108,7 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           overwrite: true
+          retention-days: 7
 
       - name: Summary
         run: |
