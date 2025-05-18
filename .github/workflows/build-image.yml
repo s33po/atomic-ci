@@ -249,6 +249,7 @@ jobs:
           skip_compression: true
           version: ${{ steps.check.outputs.version }}
           pretty: ${{ steps.check.outputs.redhat-version-id }}
+          revision: ${{ github.sha }}
           labels: |
             redhat.id=${{ steps.check.outputs.redhat-id }}
             redhat.version-id=${{ steps.check.outputs.redhat-version-id }}
