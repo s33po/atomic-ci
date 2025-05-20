@@ -1,1 +1,1 @@
-# build_image
+# CI for AlmaLinux Atomic SIG Images
