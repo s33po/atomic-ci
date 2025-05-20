@@ -33,6 +33,20 @@ on:
         required: false
         type: boolean
         default: false
+      REGISTRY_USER:
+        description: "The username to use for the registry"
+        required: false
+        type: string
+        default: "${{ github.actor }}"
+      image-registry:
+        description: "The registry to push the image to"
+        required: false
+        type: string
+        default: "ghcr.io"
+    secrets:
+      REGISTRY_TOKEN:
+        description: "The token to use for the registry"
+        required: true
 
 jobs:
   generate_matrix:
@@ -65,6 +79,10 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
           submodules: true
+
+      - name: Login to Container Registry
+        run: |
+          echo ${{ secrets.REGISTRY_TOKEN }} | podman login -u ${{ inputs.REGISTRY_USER }} --password-stdin ${{ env.IMAGE_REGISTRY }}
 
       - name: Prepare ISO configuration
         shell: bash
