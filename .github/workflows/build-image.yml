@@ -248,13 +248,18 @@ jobs:
           sudo $SYFT_CMD ${IMAGE_ID} -o spdx-json=${OUTPUT_PATH}
           echo "OUTPUT_PATH=${OUTPUT_PATH}" >> $GITHUB_OUTPUT
 
+      - name: Lowercase previous image
+        id: lowercase
+        run: |
+          echo "PREVIOUS_IMAGE=`echo ${{ inputs.previous-image }} | tr '[:upper:]' '[:lower:]'`" >>${GITHUB_ENV}
+
       - name: Run Rechunker
         id: rechunk
         uses: hhd-dev/rechunk@ca77507401f8700bb0b25ebecbbf980a078cd180 # v1.2.2
         with:
           rechunk: "ghcr.io/hhd-dev/rechunk:v1.2.1"
           ref: ${{ steps.build.outputs.image-id }}
-          prev-ref: ${{ inputs.previous-image }}
+          prev-ref: ${{ env.PREVIOUS_IMAGE }}
           skip_compression: true
           version: ${{ steps.check.outputs.version }}
           pretty: ${{ steps.check.outputs.redhat-version-id }}
