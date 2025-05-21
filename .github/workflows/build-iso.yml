@@ -38,7 +38,7 @@ on:
         required: false
         type: string
         default: "${{ github.actor }}"
-      image-registry:
+      REGISTRY:
         description: "The registry to push the image to"
         required: false
         type: string
@@ -82,7 +82,7 @@ jobs:
 
       - name: Login to Container Registry
         run: |
-          echo ${{ secrets.REGISTRY_TOKEN }} | podman login -u ${{ inputs.REGISTRY_USER }} --password-stdin ${{ inputs.image-registry }}
+          echo ${{ secrets.REGISTRY_TOKEN }} | podman login -u ${{ inputs.REGISTRY_USER }} --password-stdin ${{ inputs.REGISTRY }}
 
       - name: Prepare ISO configuration
         shell: bash

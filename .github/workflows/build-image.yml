@@ -19,7 +19,7 @@ on:
         required: false
         type: string
         default: "AlmaLinux image"
-      image-registry:
+      REGISTRY:
         description: "The registry to push the image to"
         required: false
         type: string
@@ -94,7 +94,7 @@ env:
   IMAGE_NAME: ${{ inputs.image-name }}
   CONTAINERFILE: ${{ inputs.containerfile }}
   WORKING_TAG: "run-${{ github.run_number }}"
-  IMAGE_REGISTRY: ${{ inputs.image-registry }}
+  IMAGE_REGISTRY: ${{ inputs.REGISTRY }}
   IMAGE_PATH: ${{ inputs.image-path }}
   SIGNING_ENABLED: ${{ secrets.SIGNING_SECRET != '' }}
 
