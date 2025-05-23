@@ -63,6 +63,10 @@ on:
             - Kernel: <relver:kernel>
             - Systemd: <relver:systemd>
             - Glibc: <relver:glibc>
+      variant:
+        description: "The variant of the image to build"
+        required: false
+        type: string
     outputs:
       image-ref:
         description: "The image reference of the built image"
@@ -199,6 +203,7 @@ jobs:
         shell: bash
         env:
           IMAGE_TAG: ${{ env.WORKING_TAG }}-${{ matrix.platform }}
+          VARIANT: ${{ inputs.variant }}
         run: |
           sudo podman build \
             --security-opt=label=disable \
@@ -208,6 +213,7 @@ jobs:
             --iidfile /tmp/image-id \
             --build-arg IMAGE_NAME=${{ env.IMAGE_NAME }} \
             --build-arg IMAGE_REGISTRY=${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_PATH }} \
+            --build-arg VARIANT=${{ env.VARIANT }} \
             -t ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
             -f ${{ env.CONTAINERFILE }} \
             .
