@@ -413,7 +413,11 @@ jobs:
       signing-enabled: ${{ env.SIGNING_ENABLED }}
     steps:
       - name: Login to Container Registry
-        run: echo ${{ secrets.REGISTRY_TOKEN }} | podman login -u ${{ inputs.REGISTRY_USER }} --password-stdin ${{ env.IMAGE_REGISTRY }}
+        run: |
+          echo ${{ secrets.REGISTRY_TOKEN }} | podman login -u ${{ inputs.REGISTRY_USER }} --password-stdin ${{ env.IMAGE_REGISTRY }}
+
+          # This is needed by cosign
+          echo ${{ secrets.REGISTRY_TOKEN }} | docker login -u ${{ inputs.REGISTRY_USER }} --password-stdin ${{ env.IMAGE_REGISTRY }}
 
       - name: Get a newer podman (from debian testing)
         run: |
