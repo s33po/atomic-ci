@@ -54,6 +54,11 @@ on:
         required: false
         type: boolean
         default: false
+      generate-sbom:
+        description: "Generate a Software Bill of Materials (SBOM) for the image"
+        required: false
+        type: boolean
+        default: false
       changelog-snippet:
         description: "Middle snippet of the changelog, to highlight major components"
         required: false
@@ -239,12 +244,12 @@ jobs:
 
       - name: Setup Syft
         id: setup-syft
-        if: github.event_name != 'pull_request'
+        if: ${{ inputs.generate-sbom == true && (github.event_name != 'pull_request' || github.event.pull_request.merged == true) }}
         uses: anchore/sbom-action/download-syft@e11c554f704a0b820cbf8c51673f6945e0731532 # v0
 
       - name: Generate SBOM
         id: generate-sbom
-        if: github.event_name != 'pull_request'
+        if: ${{ inputs.generate-sbom == true && (github.event_name != 'pull_request' || github.event.pull_request.merged == true) }}
         env:
           IMAGE_ID: ${{ steps.build.outputs.image-id }}
           SYFT_CMD: ${{ steps.setup-syft.outputs.cmd }}
@@ -357,7 +362,7 @@ jobs:
         run: cosign sign -y --key env://COSIGN_PRIVATE_KEY ${{ steps.push.outputs.image-ref }}@${{ steps.push.outputs.digest }}
 
       - name: Add SBOM Attestation
-        if: ${{ github.event_name != 'pull_request' && env.SIGNING_ENABLED == 'true' }}
+        if: ${{ inputs.generate-sbom == true && env.SIGNING_ENABLED == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.merged == true) }}
         env:
           IMAGE: ${{ steps.push.outputs.image-ref }}
           DIGEST: ${{ steps.push.outputs.digest }}
@@ -534,11 +539,11 @@ jobs:
           echo $INSPECT | jq .
 
       - name: Install Cosign
-        if: ${{ github.event_name != 'pull_request' && env.SIGNING_ENABLED == 'true' }}
+        if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.merged == true) && env.SIGNING_ENABLED == 'true' }}
         uses: sigstore/cosign-installer@3454372f43399081ed03b604cb2d021dabca52bb # v3.8.2
 
       - name: Sign Manifest
-        if: ${{ github.event_name != 'pull_request' && env.SIGNING_ENABLED == 'true' }}
+        if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.merged == true) && env.SIGNING_ENABLED == 'true' }}
         env:
           DIGEST: ${{ steps.push_manifest.outputs.digest }}
           IMAGE: ${{ steps.push_manifest.outputs.image }}
