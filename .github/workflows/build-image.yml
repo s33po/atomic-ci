@@ -102,7 +102,7 @@ on:
 env:
   IMAGE_NAME: ${{ inputs.image-name }}
   CONTAINERFILE: ${{ inputs.containerfile }}
-  WORKING_TAG: "run-${{ github.run_number }}"
+  WORKING_TAG: ${{ github.ref_name }}
   IMAGE_REGISTRY: ${{ inputs.REGISTRY }}
   IMAGE_PATH: ${{ inputs.image-path }}
   SIGNING_ENABLED: ${{ secrets.SIGNING_SECRET != '' }}
