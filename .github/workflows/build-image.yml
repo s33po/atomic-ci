@@ -345,6 +345,7 @@ jobs:
           for i in {1..3}; do
             podman push --digestfile=/tmp/digestfile ${lowercase_ref}:${{ env.IMAGE_TAG }} && break || sleep $((5 * i));
           done
+          [ -f /tmp/digestfile ] || exit 1
           REMOTE_IMAGE_DIGEST=$(cat /tmp/digestfile)
           echo "digest=$REMOTE_IMAGE_DIGEST" >> $GITHUB_OUTPUT
           echo "image-ref=${lowercase_ref}:${{ env.IMAGE_TAG }}" >> $GITHUB_OUTPUT
@@ -525,7 +526,11 @@ jobs:
         run: |
           lowercase_ref=$(echo "${{ env.IMAGE_REF }}" | tr '[:upper:]' '[:lower:]')
           while IFS= read -r tag; do
-            podman manifest push --all=false --digestfile=/tmp/digestfile $MANIFEST ${lowercase_ref}:$tag
+            for i in {1..3}; do
+              podman manifest push --all=false --digestfile=/tmp/digestfile $MANIFEST ${lowercase_ref}:$tag && break || sleep $((5 * i));
+            done
+            [ -f /tmp/digestfile ] || exit 1
+            echo "Pushed manifest with tag $tag"
           done <<< "$TAGS"
 
           DIGEST=$(cat /tmp/digestfile)
