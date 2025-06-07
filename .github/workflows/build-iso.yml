@@ -68,7 +68,7 @@ jobs:
           echo "matrix=$(echo $MATRIX | jq -c '.')" >> $GITHUB_OUTPUT
 
   build-iso:
-    runs-on: ${{ matrix.platform == 'amd64' && 'ubuntu-24.04' || 'ubuntu-24.04-arm' }}
+    runs-on: ${{ matrix.platform == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     needs: generate_matrix
     strategy:
       fail-fast: false
@@ -84,6 +84,12 @@ jobs:
         run: |
           echo ${{ secrets.REGISTRY_TOKEN }} | podman login -u ${{ inputs.REGISTRY_USER }} --password-stdin ${{ inputs.REGISTRY }}
 
+      - name: Set up environment
+        id: set-env
+        run: |
+          ARCH=${{ matrix.platform }}
+          echo "CLEAN_ARCH=${ARCH//\//_}" >> "$GITHUB_ENV"
+
       - name: Prepare ISO configuration
         shell: bash
         run: |
@@ -95,18 +101,20 @@ jobs:
 
       - name: Build ISO
         id: build
-        uses: ublue-os/bootc-image-builder-action@b98784c42327746e107a6a753b64f44823bdbf2f
+        #uses: ublue-os/bootc-image-builder-action@b98784c42327746e107a6a753b64f44823bdbf2f
+        uses: alexiri/bootc-image-builder-action@platform
         with:
           image: ${{ inputs.image }}
           type: iso
           use-librepo: ${{ inputs.use_librepo }}
           config-file: ${{ inputs.config-file }}
+          platform: linux/${{ matrix.platform }}
 
       - name: Rename ISO
         id: rename
         env:
-          IMAGE_NAME: ${{ inputs.image-name }}-${{ matrix.platform }}-live.iso
-          OUTPUT_PATH: output-${{ matrix.platform }}
+          IMAGE_NAME: ${{ inputs.image-name }}-${{ env.CLEAN_ARCH }}-live.iso
+          OUTPUT_PATH: output-${{ env.CLEAN_ARCH }}
         run: |
           set -x
           mkdir -p ${{ env.OUTPUT_PATH }}
@@ -121,7 +129,7 @@ jobs:
         id: upload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ${{ inputs.image-name }}-${{ matrix.platform }}-live
+          name: ${{ inputs.image-name }}-${{ env.CLEAN_ARCH }}-live
           path: ${{ steps.rename.outputs.output_directory }}
           if-no-files-found: error
           compression-level: 0

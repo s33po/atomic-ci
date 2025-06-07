@@ -167,7 +167,7 @@ jobs:
 
   build_push:
     name: Build and push image
-    runs-on: ${{ matrix.platform == 'amd64' && 'ubuntu-24.04' || 'ubuntu-24.04-arm' }}
+    runs-on: ${{ matrix.platform == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 60
     needs: generate_matrix
     strategy:
@@ -186,6 +186,12 @@ jobs:
       version: ${{ steps.load.outputs.version }}
 
     steps:
+      - name: Set up environment
+        id: set-env
+        run: |
+          ARCH=${{ matrix.platform }}
+          echo "CLEAN_ARCH=${ARCH//\//_}" >> "$GITHUB_ENV"
+
       - name: Login to Container Registry
         run: |
           echo ${{ secrets.REGISTRY_TOKEN }} | podman login -u ${{ inputs.REGISTRY_USER }} --password-stdin ${{ env.IMAGE_REGISTRY }}
@@ -209,10 +215,11 @@ jobs:
         id: build
         shell: bash
         env:
-          IMAGE_TAG: ${{ env.WORKING_TAG }}-${{ matrix.platform }}
+          IMAGE_TAG: ${{ env.WORKING_TAG }}-${{ env.CLEAN_ARCH }}
           VARIANT: ${{ inputs.variant }}
         run: |
           sudo podman build \
+            --platform=linux/${{ matrix.platform }} \
             --security-opt=label=disable \
             --cap-add=all \
             --device /dev/fuse \
@@ -227,7 +234,6 @@ jobs:
 
           echo "image-id=$(cat /tmp/image-id)" >> $GITHUB_OUTPUT
           echo "date=$(date -u +%Y\-%m\-%d\T%H\:%M\:%S\Z)" >> $GITHUB_OUTPUT
-          sudo podman image inspect ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} | jq .
 
       - name: Check image
         id: check
@@ -236,11 +242,12 @@ jobs:
           IMAGE_ID: ${{ steps.build.outputs.image-id }}
         run: |
           INSPECT=$(sudo podman image inspect ${{ env.IMAGE_ID }} )
+          echo $INSPECT | jq .
           echo "redhat-id=$(echo "$INSPECT" | jq -r '.[0].Labels["redhat.id"]')" >> $GITHUB_OUTPUT
           echo "redhat-version-id=$(echo "$INSPECT" | jq -r '.[0].Labels["redhat.version-id"]')" >> $GITHUB_OUTPUT
           echo "version=$(echo "$INSPECT" | jq -r '.[0].Labels["org.opencontainers.image.version"]')" >> $GITHUB_OUTPUT
 
-          sudo podman run --rm ${{ env.IMAGE_ID }} cat /etc/os-release
+          sudo podman run --platform=linux/${{ matrix.platform }} --rm ${{ env.IMAGE_ID }} bash -c "rpm -q almalinux-gpg-keys && cat /etc/os-release"
 
       - name: Setup Syft
         id: setup-syft
@@ -301,7 +308,7 @@ jobs:
       - name: Upload ChangeLog
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: changelog-${{ env.IMAGE_NAME }}-${{ matrix.platform }}
+          name: changelog-${{ env.IMAGE_NAME }}-${{ env.CLEAN_ARCH }}
           retention-days: 1
           if-no-files-found: error
           path: |
@@ -310,7 +317,7 @@ jobs:
       - name: Load Image
         id: load
         env:
-          IMAGE_TAG: ${{ env.WORKING_TAG }}-${{ matrix.platform }}
+          IMAGE_TAG: ${{ env.WORKING_TAG }}-${{ env.CLEAN_ARCH }}
         run: |
           ls -l ${{ steps.rechunk.outputs.changelog }}
           cat ${{ steps.rechunk.outputs.changelog }}
@@ -336,7 +343,7 @@ jobs:
       - name: Push to registry
         id: push
         env:
-          IMAGE_TAG: ${{ env.WORKING_TAG }}-${{ matrix.platform }}
+          IMAGE_TAG: ${{ env.WORKING_TAG }}-${{ env.CLEAN_ARCH }}
           IMAGE_REF: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_PATH }}/${{ env.IMAGE_NAME }}
         run: |
           set -x
@@ -389,14 +396,14 @@ jobs:
             --arg version "${{ steps.load.outputs.version }}" \
             --arg image_id "${{ steps.load.outputs.image-id }}" \
             '{($platform): {digest: $digest, version: $version, redhat_version_id: $redhat_version_id, image_id: $image_id}}' \
-            > /tmp/outputs/digests/${IMAGE_NAME}_${PLATFORM}.json
+            > /tmp/outputs/digests/${IMAGE_NAME}_${{env.CLEAN_ARCH}}.json
 
-          cat /tmp/outputs/digests/${IMAGE_NAME}_${PLATFORM}.json
+          cat /tmp/outputs/digests/${IMAGE_NAME}_${{env.CLEAN_ARCH}}.json
 
       - name: Upload Output Artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ${{ env.IMAGE_NAME }}_${{ matrix.platform }}
+          name: ${{ env.IMAGE_NAME }}_${{ env.CLEAN_ARCH }}
           retention-days: 1
           if-no-files-found: error
           path: |
@@ -506,9 +513,13 @@ jobs:
           lowercase_ref=$(echo "${{ env.IMAGE_REF }}" | tr '[:upper:]' '[:lower:]')
 
           for platform in $(echo $DIGESTS_JSON | jq -r '. | to_entries | .[].key'); do
-            digest=$(echo $DIGESTS_JSON | jq -r ".$platform.digest")
+            digest=$(echo $DIGESTS_JSON | jq -r ".[\"$platform\"].digest")
             echo "Adding ${lowercase_ref}@$digest for $platform"
-            podman manifest add $MANIFEST ${lowercase_ref}@$digest --arch $platform
+            if [[ "$platform" = */v* ]]; then
+              podman manifest add $MANIFEST ${lowercase_ref}@$digest --arch ${platform%/*} --variant ${platform#*/}
+            else
+              podman manifest add $MANIFEST ${lowercase_ref}@$digest --arch $platform
+            fi
           done
 
           # Apply the labels to the manifest (separated by newlines)
