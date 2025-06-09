@@ -43,11 +43,29 @@ on:
         required: false
         type: string
         default: "ghcr.io"
+      upload-to-github:
+        description: "Upload the ISO to GitHub Actions artifacts"
+        required: false
+        type: boolean
+        default: true
       upload-to-cloudflare:
         description: "Upload the ISO to Cloudflare"
         required: false
         type: boolean
         default: false
+      upload-to-s3:
+        description: "Upload the ISO to S3"
+        required: false
+        type: boolean
+        default: false
+      bucket:
+        description: "The S3/R2 bucket to upload the ISO to"
+        required: false
+        type: string
+      aws-default-region:
+        description: "The AWS region to use for S3 uploads"
+        required: false
+        type: string
     secrets:
       REGISTRY_TOKEN:
         description: "The token to use for the registry"
@@ -55,14 +73,11 @@ on:
       R2_ACCOUNT_ID:
         description: "Cloudflare R2 account ID"
         required: false
-      R2_ACCESS_KEY_ID:
-        description: "Cloudflare R2 access key ID"
+      ACCESS_KEY_ID:
+        description: "S3/R2 access key ID"
         required: false
-      R2_SECRET_ACCESS_KEY:
-        description: "Cloudflare R2 secret access key"
-        required: false
-      R2_BUCKET:
-        description: "Cloudflare R2 bucket name"
+      SECRET_ACCESS_KEY:
+        description: "S3/R2 secret access key"
         required: false
 
 jobs:
@@ -143,7 +158,7 @@ jobs:
           echo "output_directory=$OUTPUT_DIRECTORY" >> "${GITHUB_OUTPUT}"
 
       - name: Upload ISOs and Checksum to Job Artifacts
-        if: inputs.upload-to-cloudflare == false
+        if: inputs.upload-to-github == true
         id: upload-gh
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -155,7 +170,7 @@ jobs:
           retention-days: 7
 
       - name: Summary
-        if: inputs.upload-to-cloudflare == false
+        if: inputs.upload-to-github == true
         run: |
           echo "Artifact URL: ${{ steps.upload-gh.outputs.artifact-url }}" >> $GITHUB_STEP_SUMMARY
           echo "Digest: ${{ steps.upload-gh.outputs.artifact-digest }}" >> $GITHUB_STEP_SUMMARY
@@ -166,8 +181,37 @@ jobs:
         uses: ryand56/r2-upload-action@3bee737337fc7ecb450bedfff45cfa2ed953e576 # v1.4
         with:
           r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
-          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
-          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          r2-bucket: ${{ secrets.R2_BUCKET }}
+          r2-access-key-id: ${{ secrets.ACCESS_KEY_ID }}
+          r2-secret-access-key: ${{ secrets.SECRET_ACCESS_KEY }}
+          r2-bucket: ${{ inputs.bucket }}
           source-dir: ${{ steps.rename.outputs.output_directory }}
           destination-dir: ./
+
+      - name: Upload to S3
+        if: inputs.upload-to-s3 == true
+        id: upload-s3
+        env:
+          IMAGE_NAME: ${{ inputs.image-name }}-${{ env.CLEAN_ARCH }}-live.iso
+          AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ inputs.aws-default-region }}
+          BUCKET: ${{ inputs.bucket }}
+        run: |-
+          # Upload the files to S3 bucket
+          aws s3 cp ${{ steps.rename.outputs.output_directory }} \
+              s3://${BUCKET}/${{ inputs.image-name }}/ \
+              --recursive
+
+           # Make them uploaded file publicly available
+          aws s3api put-object-tagging \
+              --bucket ${BUCKET} \
+              --key ${{ inputs.image-name }}/${IMAGE_NAME} \
+              --tagging 'TagSet={Key=public,Value=yes}'
+
+          aws s3api put-object-tagging \
+              --bucket ${BUCKET} \
+              --key ${{ inputs.image-name }}/${IMAGE_NAME}-CHECKSUM \
+              --tagging 'TagSet={Key=public,Value=yes}'
+
+          echo "ISO: https://${BUCKET}.s3.${AWS_DEFAULT_REGION}.amazonaws.com/${{ inputs.image-name }}/${IMAGE_NAME}" >> $GITHUB_STEP_SUMMARY
+          echo "Digest: https://${BUCKET}.s3.${AWS_DEFAULT_REGION}.amazonaws.com/${{ inputs.image-name }}/${IMAGE_NAME}-CHECKSUM" >> $GITHUB_STEP_SUMMARY
