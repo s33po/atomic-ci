@@ -33,13 +33,6 @@ jobs:
           merge-multiple: true
           path: /tmp/changelogs
 
-      - name: Fetch ISOs
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          pattern: ${{ inputs.image-name }}-*-live
-          merge-multiple: true
-          path: /tmp/isos
-
       - name: Prepare Release
         id: prepare-release
         shell: bash
@@ -90,4 +83,3 @@ jobs:
           tag_name: ${{ inputs.version }}
           body_path: ./changelog.md
           make_latest: true
-          files: /tmp/isos/*
