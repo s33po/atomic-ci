@@ -27,6 +27,7 @@ on:
 
 jobs:
   retag-image:
+    name: Retag image
     runs-on: ubuntu-latest
 
     steps:
