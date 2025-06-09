@@ -102,7 +102,6 @@ on:
 env:
   IMAGE_NAME: ${{ inputs.image-name }}
   CONTAINERFILE: ${{ inputs.containerfile }}
-  WORKING_TAG: ${{ github.ref_name }}
   IMAGE_REGISTRY: ${{ inputs.REGISTRY }}
   IMAGE_PATH: ${{ inputs.image-path }}
   SIGNING_ENABLED: ${{ secrets.SIGNING_SECRET != '' }}
@@ -117,6 +116,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
+      tag: ${{ steps.set-matrix.outputs.WORKING_TAG }}
     steps:
       - name: Set matrix
         id: set-matrix
@@ -130,6 +130,9 @@ jobs:
             MATRIX=$(echo $MATRIX | jq ".include += [{\"platform\": \"$platform\"}]")
           done
           echo "matrix=$(echo $MATRIX | jq -c '.')" >> $GITHUB_OUTPUT
+
+          WORKING_TAG="${{ github.ref_name }}"
+          echo "WORKING_TAG=${WORKING_TAG//\//_}" >> "$GITHUB_OUTPUT"
 
       - name: Install Cosign
         if: ${{ inputs.upstream-public-key != '' }}
@@ -215,7 +218,7 @@ jobs:
         id: build
         shell: bash
         env:
-          IMAGE_TAG: ${{ env.WORKING_TAG }}-${{ env.CLEAN_ARCH }}
+          IMAGE_TAG: ${{ needs.generate_matrix.outputs.tag }}-${{ env.CLEAN_ARCH }}
           VARIANT: ${{ inputs.variant }}
         run: |
           sudo podman build \
@@ -317,7 +320,7 @@ jobs:
       - name: Load Image
         id: load
         env:
-          IMAGE_TAG: ${{ env.WORKING_TAG }}-${{ env.CLEAN_ARCH }}
+          IMAGE_TAG: ${{ needs.generate_matrix.outputs.tag }}-${{ env.CLEAN_ARCH }}
         run: |
           ls -l ${{ steps.rechunk.outputs.changelog }}
           cat ${{ steps.rechunk.outputs.changelog }}
@@ -343,7 +346,7 @@ jobs:
       - name: Push to registry
         id: push
         env:
-          IMAGE_TAG: ${{ env.WORKING_TAG }}-${{ env.CLEAN_ARCH }}
+          IMAGE_TAG: ${{ needs.generate_matrix.outputs.tag }}-${{ env.CLEAN_ARCH }}
           IMAGE_REF: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_PATH }}/${{ env.IMAGE_NAME }}
         run: |
           set -x
@@ -477,7 +480,7 @@ jobs:
         id: metadata
         with:
           tags: |
-            type=raw,value=${{ env.WORKING_TAG }}
+            type=raw,value=${{ needs.generate_matrix.outputs.tag }}
             type=sha,enable=${{ github.event_name != 'pull_request' }}
             type=ref,event=pr
           labels: |
