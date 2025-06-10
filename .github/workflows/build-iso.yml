@@ -178,7 +178,7 @@ jobs:
       - name: Upload to Cloudflare
         if: inputs.upload-to-cloudflare == true
         id: upload-cf
-        uses: ryand56/r2-upload-action@3bee737337fc7ecb450bedfff45cfa2ed953e576 # v1.4
+        uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1.4
         with:
           r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.ACCESS_KEY_ID }}
