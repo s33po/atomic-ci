@@ -1,0 +1,257 @@
+---
+name: Image Build Action
+
+inputs:
+  platform:
+    description: The platform to build the image for (e.g., "x86_64", "arm64")
+    required: true
+  variant:
+    description: The variant of the image to build
+    required: true
+  containerfile:
+    description: The path to the Containerfile used for building the image
+    required: true
+  image-name:
+    description: The name of the image to build
+    required: true
+  image-path:
+    description: The path where the image will be stored in the registry
+    required: true
+  image-tag:
+    description: The tag for the image
+    required: true
+  image-description:
+    description: A description of the image
+    required: true
+  previous-image:
+    description: The previous image to compare against
+    required: true
+  skip-maximize-build-space:
+    description: Whether to skip maximizing build space
+    required: false
+  docs-url:
+    description: The URL to the documentation for the image
+    required: true
+  changelog-snippet:
+    description: A snippet to include in the changelog
+    required: true
+  REGISTRY:
+    description: The container registry URL (e.g., "registry.example.com")
+    required: true
+  REGISTRY_USER:
+    description: The username for the container registry login
+    required: true
+  REGISTRY_TOKEN:
+    description: The token for authenticating with the container registry
+    required: true
+
+outputs:
+  image-id:
+    description: The ID of the built image
+    value: ${{ steps.load.outputs.image-id }}
+  image-ref:
+    description: The reference to the pushed image in the registry
+    value: ${{ steps.set-env.outputs.image-ref }}
+  digest:
+    description: The digest of the pushed image
+    value: ${{ steps.push.outputs.digest }}
+  redhat-id:
+    description: The Red Hat ID from the image labels
+    value: ${{ steps.load.outputs.redhat-id }}
+  redhat-version-id:
+    description: The Red Hat version ID from the image labels
+    value: ${{ steps.load.outputs.redhat-version-id }}
+  major-version:
+    description: The major version extracted from the Red Hat version ID
+    value: ${{ steps.load.outputs.redhat-major-version }}
+  version:
+    description: The version of the image
+    value: ${{ steps.load.outputs.version }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up environment
+      id: set-env
+      shell: bash
+      run: |
+        ARCH=${{ inputs.platform }}
+        echo "CLEAN_ARCH=${ARCH//\//_}" >> "$GITHUB_ENV"
+
+        lowercase_ref=$(echo "${{ inputs.REGISTRY }}/${{ inputs.image-path }}/${{ inputs.image-name }}" | tr '[:upper:]' '[:lower:]')
+        echo "image-ref=${lowercase_ref}" >> $GITHUB_OUTPUT
+
+    - name: Login to Container Registry
+      shell: bash
+      run: |
+        # Docker login, not podman, because Cosign uses the docker login file
+        echo ${{ inputs.REGISTRY_TOKEN }} | docker login -u ${{ inputs.REGISTRY_USER }} --password-stdin ${{ inputs.REGISTRY }}
+
+    - name: Maximize build space
+      if: ${{ inputs.platform != 'arm64' && inputs.skip-maximize-build-space != 'true' }}
+      uses: ublue-os/remove-unwanted-software@cc0becac701cf642c8f0a6613bbdaf5dc36b259e # v9
+      with:
+        remove-codeql: true
+
+    - name: Build image
+      id: build
+      shell: bash
+      env:
+        IMAGE_TAG: ${{ inputs.image-tag }}-${{ env.CLEAN_ARCH }}
+      run: |
+        echo "::group::Build Image"
+        sudo podman build \
+          --platform=linux/${{ inputs.platform }} \
+          --security-opt=label=disable \
+          --cap-add=all \
+          --device /dev/fuse \
+          --timestamp=0 \
+          --iidfile /tmp/image-id \
+          --build-arg IMAGE_NAME=${{ inputs.image-name }} \
+          --build-arg IMAGE_REGISTRY=${{ inputs.REGISTRY }}/${{ inputs.image-path }} \
+          --build-arg VARIANT=${{ inputs.variant }} \
+          -t ${{ inputs.image-name }}:${IMAGE_TAG} \
+          -f ${{ inputs.containerfile }} \
+          .
+
+        echo "image-id=$(cat /tmp/image-id)" >> $GITHUB_OUTPUT
+        echo "date=$(date -u +%Y\-%m\-%d\T%H\:%M\:%S\Z)" >> $GITHUB_OUTPUT
+        echo "::endgroup::"
+
+    - name: Check image
+      id: check
+      shell: bash
+      env:
+        IMAGE_ID: ${{ steps.build.outputs.image-id }}
+      run: |
+        echo "::group::Check Image"
+        INSPECT=$(sudo podman image inspect ${{ env.IMAGE_ID }} )
+        echo $INSPECT | jq .
+        echo "redhat-id=$(echo "$INSPECT" | jq -r '.[0].Labels["redhat.id"]')" >> $GITHUB_OUTPUT
+        echo "redhat-version-id=$(echo "$INSPECT" | jq -r '.[0].Labels["redhat.version-id"]')" >> $GITHUB_OUTPUT
+        echo "major-version=$(echo "$INSPECT" | jq -r '.[0].Labels["redhat.version-id"]' | cut -d. -f1)" >> $GITHUB_OUTPUT
+        echo "version=$(echo "$INSPECT" | jq -r '.[0].Labels["org.opencontainers.image.version"]')" >> $GITHUB_OUTPUT
+
+        sudo podman run --platform=linux/${{ inputs.platform }} --rm ${{ env.IMAGE_ID }} bash -c "rpm -q almalinux-gpg-keys && cat /etc/os-release"
+        echo "::endgroup::"
+
+    - name: Lowercase previous image
+      id: lowercase
+      shell: bash
+      run: |
+        echo "PREVIOUS_IMAGE=`echo ${{ inputs.previous-image }} | tr '[:upper:]' '[:lower:]'`" >>${GITHUB_ENV}
+
+    - name: Run Rechunker
+      id: rechunk
+      uses: hhd-dev/rechunk@ca77507401f8700bb0b25ebecbbf980a078cd180 # v1.2.2
+      with:
+        rechunk: "ghcr.io/hhd-dev/rechunk:v1.2.1"
+        ref: ${{ steps.build.outputs.image-id }}
+        prev-ref: ${{ env.PREVIOUS_IMAGE }}
+        skip_compression: true
+        version: ${{ steps.check.outputs.version }}
+        pretty: ${{ steps.check.outputs.redhat-version-id }}
+        revision: ${{ github.sha }}
+        labels: |
+          redhat.id=${{ steps.check.outputs.redhat-id }}
+          redhat.version-id=${{ steps.check.outputs.redhat-version-id }}
+          redhat.major-version=${{ steps.check.outputs.major-version }}
+          org.opencontainers.image.created=${{ steps.build.outputs.date }}
+          org.opencontainers.image.description=${{ inputs.image-description }}
+          org.opencontainers.image.documentation=${{ inputs.docs-url }}
+          org.opencontainers.image.source=https://github.com/${{ github.repository }}/blob/main/${{ inputs.containerfile }}
+          org.opencontainers.image.title=${{ inputs.image-name }}
+          org.opencontainers.image.url=${{ github.event.repository.html_url }}
+          org.opencontainers.image.vendor=${{ github.repository_owner }}
+        changelog: |
+          ## Changelog ${{ inputs.image-name }} <pretty> ${{ inputs.platform }}
+          ### Version: <version>
+          ${{ inputs.changelog-snippet }}
+
+          ### Changes since last version (<previous>):
+          #### Commits
+          <commits>
+          #### Package Changes
+          <pkgupd>
+
+    - name: Upload ChangeLog
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      with:
+        name: changelog-${{ inputs.image-name }}-${{ env.CLEAN_ARCH }}
+        retention-days: 1
+        if-no-files-found: error
+        path: |
+          ${{ steps.rechunk.outputs.changelog }}
+
+    - name: Load Image
+      id: load
+      env:
+        IMAGE_TAG: ${{ inputs.image-tag }}-${{ env.CLEAN_ARCH }}
+      shell: bash
+      run: |
+        echo "::group::Load Image"
+        ls -l ${{ steps.rechunk.outputs.changelog }}
+        cat ${{ steps.rechunk.outputs.changelog }}
+        if [ -s ${{ steps.rechunk.outputs.changelog }} ]; then
+          cat ${{ steps.rechunk.outputs.changelog }} >> $GITHUB_STEP_SUMMARY
+        fi
+
+        IMAGE=$(podman pull ${{ steps.rechunk.outputs.ref }})
+        sudo rm -rf ${{ steps.rechunk.outputs.location }}
+        podman image tag $IMAGE ${{ inputs.image-name }}:${{ env.IMAGE_TAG }}
+
+        IMAGE=${{ inputs.image-name }}:${{ env.IMAGE_TAG }}
+        INSPECT=$(podman image inspect $IMAGE)
+        echo "image=$IMAGE" >> $GITHUB_OUTPUT
+        echo "digest=$(echo "$INSPECT" | jq -r '.[0].Digest')" >> $GITHUB_OUTPUT
+        echo "image-id=$(echo "$INSPECT" | jq -r '("sha256:" + .[0].Id)')" >> $GITHUB_OUTPUT
+        echo "redhat-id=$(echo "$INSPECT" | jq -r '.[0].Labels["redhat.id"]')" >> $GITHUB_OUTPUT
+        echo "redhat-version-id=$(echo "$INSPECT" | jq -r '.[0].Labels["redhat.version-id"]')" >> $GITHUB_OUTPUT
+        echo "redhat-major-version=$(echo "$INSPECT" | jq -r '.[0].Labels["redhat.major-version"]')" >> $GITHUB_OUTPUT
+        echo "version=$(echo "$INSPECT" | jq -r '.[0].Labels["org.opencontainers.image.version"]')" >> $GITHUB_OUTPUT
+        echo $INSPECT | jq .
+        echo "::endgroup::"
+
+    # Push the image to GHCR (Image Registry)
+    - name: Push to Registry
+      id: push
+      env:
+        IMAGE_TAG: ${{ inputs.image-tag }}-${{ env.CLEAN_ARCH }}
+      shell: bash
+      run: |
+        echo "::group::Push to Registry"
+        podman tag ${{ steps.load.outputs.image-id }} ${{ steps.set-env.outputs.image-ref }}:${{ env.IMAGE_TAG }}
+        for i in {1..3}; do
+          podman push --digestfile=/tmp/digestfile ${{ steps.set-env.outputs.image-ref }}:${{ env.IMAGE_TAG }} && break || sleep $((5 * i));
+        done
+        [ -f /tmp/digestfile ] || exit 1
+        REMOTE_IMAGE_DIGEST=$(cat /tmp/digestfile)
+        echo "digest=$REMOTE_IMAGE_DIGEST" >> $GITHUB_OUTPUT
+        cat /tmp/digestfile
+        echo "::endgroup::"
+
+    - name: Create Job Outputs
+      shell: bash
+      run: |
+        echo "::group::Create Job Outputs"
+        mkdir -p /tmp/outputs/digests/
+        jq -n --arg platform "${{ inputs.platform }}" \
+          --arg digest "${{ steps.push.outputs.digest }}" \
+          --arg redhat_version_id "${{ steps.load.outputs.redhat-version-id }}" \
+          --arg version "${{ steps.load.outputs.version }}" \
+          --arg image_id "${{ steps.load.outputs.image-id }}" \
+          --arg major_version "${{ steps.load.outputs.redhat-major-version }}" \
+          '{($platform): {digest: $digest, version: $version, redhat_version_id: $redhat_version_id, image_id: $image_id, major_version: $major_version}}' \
+          > /tmp/outputs/digests/${{ inputs.image-name }}_${{ env.CLEAN_ARCH }}.json
+
+        cat /tmp/outputs/digests/${{ inputs.image-name }}_${{ env.CLEAN_ARCH }}.json
+        echo "::endgroup::"
+
+    - name: Upload Output Artifacts
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      with:
+        name: ${{ inputs.image-name }}_${{ env.CLEAN_ARCH }}
+        retention-days: 1
+        if-no-files-found: error
+        path: |
+          /tmp/outputs/digests/*.json

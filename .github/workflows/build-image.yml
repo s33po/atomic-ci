@@ -79,18 +79,15 @@ on:
       digest:
         description: "The digest of the built image"
         value: ${{ jobs.manifest.outputs.digest }}
-      image-id:
-        description: "The image ID of the built image"
-        value: ${{ jobs.manifest.outputs.image-id }}
       version:
         description: "The version of the built image"
-        value: ${{ jobs.build_push.outputs.version }}
-      redhat-id:
-        description: "The redhat.id label of the built image"
-        value: ${{ jobs.build_push.outputs.redhat-id }}
+        value: ${{ jobs.manifest.outputs.version }}
       redhat-version-id:
         description: "The redhat.version-id label of the built image"
-        value: ${{ jobs.build_push.outputs.redhat-version-id }}
+        value: ${{ jobs.manifest.outputs.redhat-version-id }}
+      major-version:
+        description: "The major version of the built image"
+        value: ${{ jobs.manifest.outputs.major-version }}
     secrets:
       REGISTRY_TOKEN:
         description: "The token to use for the registry"
@@ -116,57 +113,25 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
-      tag: ${{ steps.set-matrix.outputs.WORKING_TAG }}
+      tag: ${{ steps.set-matrix.outputs.tag }}
     steps:
-      - name: Set matrix
-        id: set-matrix
-        run: |
-          # turn the comma separated string into a list
-          platforms=()
-          IFS=',' read -r -a platforms <<< "${{ inputs.platforms }}"
-
-          MATRIX="{\"include\":[]}"
-          for platform in "${platforms[@]}"; do
-            MATRIX=$(echo $MATRIX | jq ".include += [{\"platform\": \"$platform\"}]")
-          done
-          echo "matrix=$(echo $MATRIX | jq -c '.')" >> $GITHUB_OUTPUT
-
-          WORKING_TAG="${{ github.ref_name }}"
-          echo "WORKING_TAG=${WORKING_TAG//\//_}" >> "$GITHUB_OUTPUT"
-
-      - name: Install Cosign
-        if: ${{ inputs.upstream-public-key != '' }}
-        uses: sigstore/cosign-installer@3454372f43399081ed03b604cb2d021dabca52bb # v3.8.2
-
       - name: Checkout
-        if: ${{ inputs.upstream-public-key != '' }}
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Checkout github actions
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
-          submodules: true
+          repository: AlmaLinux/atomic-ci
+          ref: 'main'
+          path: github-actions
 
-      - name: Extract upstream
-        if: ${{ inputs.upstream-public-key != '' }}
-        id: extract
-        run: |
-          # Install Dockerfile parser
-          pip3 install dockerfile-parse
-          # Extract the last FROM image using Python
-          upstream=$(python3 - << 'EOF'
-          from dockerfile_parse import DockerfileParser
-          with open("${{ inputs.containerfile }}", "r") as f:
-              dfp = DockerfileParser(fileobj=f)
-              froms = [s['value'].split()[0] for s in dfp.structure if s['instruction'] == 'FROM']
-              print(froms[-1])
-          EOF
-          )
-          echo "upstream-image=$upstream" >> $GITHUB_OUTPUT
-
-      - name: Verify signature
-        if: ${{ inputs.upstream-public-key != '' }}
-        id: verify
-        run: |
-          echo "Verifying signature for ${{ steps.extract.outputs.upstream-image }}"
-          cosign verify --key ${{ inputs.upstream-public-key }} ${{ steps.extract.outputs.upstream-image }} | jq .
+      - uses: ./github-actions/.github/actions/prepare-build
+        name: Prepare build
+        id: set-matrix
+        with:
+          platforms: ${{ inputs.platforms }}
+          containerfile: ${{ inputs.containerfile }}
+          upstream-public-key: ${{ inputs.upstream-public-key }}
 
   build_push:
     name: Build and push image
@@ -189,228 +154,50 @@ jobs:
       version: ${{ steps.load.outputs.version }}
 
     steps:
-      - name: Set up environment
-        id: set-env
-        run: |
-          ARCH=${{ matrix.platform }}
-          echo "CLEAN_ARCH=${ARCH//\//_}" >> "$GITHUB_ENV"
-
-      - name: Login to Container Registry
-        run: |
-          echo ${{ secrets.REGISTRY_TOKEN }} | podman login -u ${{ inputs.REGISTRY_USER }} --password-stdin ${{ env.IMAGE_REGISTRY }}
-
-          # This is needed by cosign
-          echo ${{ secrets.REGISTRY_TOKEN }} | docker login -u ${{ inputs.REGISTRY_USER }} --password-stdin ${{ env.IMAGE_REGISTRY }}
-
-      - name: Maximize build space
-        if: ${{ matrix.platform != 'arm64' && inputs.skip-maximize-build-space != true }}
-        uses: ublue-os/remove-unwanted-software@cc0becac701cf642c8f0a6613bbdaf5dc36b259e # v9
-        with:
-          remove-codeql: true
-
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Checkout github actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
-          submodules: true
-          fetch-depth: 500
+          repository: AlmaLinux/atomic-ci
+          ref: 'main'
+          path: github-actions
 
-      - name: Build image
+      - uses: ./github-actions/.github/actions/build
+        name: Build image
         id: build
-        shell: bash
-        env:
-          IMAGE_TAG: ${{ needs.generate_matrix.outputs.tag }}-${{ env.CLEAN_ARCH }}
-          VARIANT: ${{ inputs.variant }}
-        run: |
-          sudo podman build \
-            --platform=linux/${{ matrix.platform }} \
-            --security-opt=label=disable \
-            --cap-add=all \
-            --device /dev/fuse \
-            --timestamp=0 \
-            --iidfile /tmp/image-id \
-            --build-arg IMAGE_NAME=${{ env.IMAGE_NAME }} \
-            --build-arg IMAGE_REGISTRY=${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_PATH }} \
-            --build-arg VARIANT=${{ env.VARIANT }} \
-            -t ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
-            -f ${{ env.CONTAINERFILE }} \
-            .
+        with:
+          platform: ${{ matrix.platform }}
+          variant: ${{ inputs.variant }}
+          containerfile: ${{ inputs.containerfile }}
+          image-name: ${{ inputs.image-name }}
+          image-path: ${{ inputs.image-path }}
+          image-tag: ${{ needs.generate_matrix.outputs.tag }}
+          skip-maximize-build-space: ${{ inputs.skip-maximize-build-space }}
+          docs-url: ${{ inputs.docs-url }}
+          image-description: ${{ inputs.image-description }}
+          previous-image: ${{ inputs.previous-image }}
+          REGISTRY: ${{ inputs.REGISTRY }}
+          REGISTRY_USER: ${{ inputs.REGISTRY_USER }}
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
 
-          echo "image-id=$(cat /tmp/image-id)" >> $GITHUB_OUTPUT
-          echo "date=$(date -u +%Y\-%m\-%d\T%H\:%M\:%S\Z)" >> $GITHUB_OUTPUT
-
-      - name: Check image
-        id: check
-        shell: bash
-        env:
-          IMAGE_ID: ${{ steps.build.outputs.image-id }}
-        run: |
-          INSPECT=$(sudo podman image inspect ${{ env.IMAGE_ID }} )
-          echo $INSPECT | jq .
-          echo "redhat-id=$(echo "$INSPECT" | jq -r '.[0].Labels["redhat.id"]')" >> $GITHUB_OUTPUT
-          echo "redhat-version-id=$(echo "$INSPECT" | jq -r '.[0].Labels["redhat.version-id"]')" >> $GITHUB_OUTPUT
-          echo "version=$(echo "$INSPECT" | jq -r '.[0].Labels["org.opencontainers.image.version"]')" >> $GITHUB_OUTPUT
-
-          sudo podman run --platform=linux/${{ matrix.platform }} --rm ${{ env.IMAGE_ID }} bash -c "rpm -q almalinux-gpg-keys && cat /etc/os-release"
-
-      - name: Setup Syft
-        id: setup-syft
-        if: ${{ inputs.generate-sbom == true && (github.event_name != 'pull_request' || github.event.pull_request.merged == true) }}
-        uses: anchore/sbom-action/download-syft@e11c554f704a0b820cbf8c51673f6945e0731532 # v0
-
-      - name: Generate SBOM
+      - uses: ./github-actions/.github/actions/sbom
+        name: Generate SBOM
         id: generate-sbom
         if: ${{ inputs.generate-sbom == true && (github.event_name != 'pull_request' || github.event.pull_request.merged == true) }}
-        env:
-          IMAGE_ID: ${{ steps.build.outputs.image-id }}
-          SYFT_CMD: ${{ steps.setup-syft.outputs.cmd }}
-        run: |
-          sudo systemctl start podman.socket
-
-          OUTPUT_PATH="$(mktemp -d)/sbom.json"
-          export SYFT_PARALLELISM=$(($(nproc)*2))
-          sudo $SYFT_CMD ${IMAGE_ID} -o spdx-json=${OUTPUT_PATH}
-          echo "OUTPUT_PATH=${OUTPUT_PATH}" >> $GITHUB_OUTPUT
-
-      - name: Lowercase previous image
-        id: lowercase
-        run: |
-          echo "PREVIOUS_IMAGE=`echo ${{ inputs.previous-image }} | tr '[:upper:]' '[:lower:]'`" >>${GITHUB_ENV}
-
-      - name: Run Rechunker
-        id: rechunk
-        uses: hhd-dev/rechunk@ca77507401f8700bb0b25ebecbbf980a078cd180 # v1.2.2
         with:
-          rechunk: "ghcr.io/hhd-dev/rechunk:v1.2.1"
-          ref: ${{ steps.build.outputs.image-id }}
-          prev-ref: ${{ env.PREVIOUS_IMAGE }}
-          skip_compression: true
-          version: ${{ steps.check.outputs.version }}
-          pretty: ${{ steps.check.outputs.redhat-version-id }}
-          revision: ${{ github.sha }}
-          labels: |
-            redhat.id=${{ steps.check.outputs.redhat-id }}
-            redhat.version-id=${{ steps.check.outputs.redhat-version-id }}
-            org.opencontainers.image.created=${{ steps.build.outputs.date }}
-            org.opencontainers.image.description=${{ inputs.image-description }}
-            org.opencontainers.image.documentation=${{ inputs.docs-url }}
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}/blob/main/${{ inputs.containerfile }}
-            org.opencontainers.image.title=${{ env.IMAGE_NAME }}
-            org.opencontainers.image.url=${{ github.event.repository.html_url }}
-            org.opencontainers.image.vendor=${{ github.repository_owner }}
-          changelog: |
-            ## Changelog ${{ inputs.image-name }} <pretty> ${{ matrix.platform }}
-            ### Version: <version>
-            ${{ inputs.changelog-snippet }}
+          image-ref: ${{ steps.build.outputs.image-ref }}@${{ steps.build.outputs.digest }}
 
-            ### Changes since last version (<previous>):
-            #### Commits
-            <commits>
-            #### Package Changes
-            <pkgupd>
-
-      - name: Upload ChangeLog
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: changelog-${{ env.IMAGE_NAME }}-${{ env.CLEAN_ARCH }}
-          retention-days: 1
-          if-no-files-found: error
-          path: |
-            ${{ steps.rechunk.outputs.changelog }}
-
-      - name: Load Image
-        id: load
-        env:
-          IMAGE_TAG: ${{ needs.generate_matrix.outputs.tag }}-${{ env.CLEAN_ARCH }}
-        run: |
-          ls -l ${{ steps.rechunk.outputs.changelog }}
-          cat ${{ steps.rechunk.outputs.changelog }}
-          if [ -s ${{ steps.rechunk.outputs.changelog }} ]; then
-            cat ${{ steps.rechunk.outputs.changelog }} >> $GITHUB_STEP_SUMMARY
-          fi
-
-          IMAGE=$(podman pull ${{ steps.rechunk.outputs.ref }})
-          sudo rm -rf ${{ steps.rechunk.outputs.location }}
-          podman image tag $IMAGE ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-
-          IMAGE=${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-          INSPECT=$(podman image inspect $IMAGE)
-          echo "image=$IMAGE" >> $GITHUB_OUTPUT
-          echo "digest=$(echo "$INSPECT" | jq -r '.[0].Digest')" >> $GITHUB_OUTPUT
-          echo "image-id=$(echo "$INSPECT" | jq -r '("sha256:" + .[0].Id)')" >> $GITHUB_OUTPUT
-          echo "redhat-id=$(echo "$INSPECT" | jq -r '.[0].Labels["redhat.id"]')" >> $GITHUB_OUTPUT
-          echo "redhat-version-id=$(echo "$INSPECT" | jq -r '.[0].Labels["redhat.version-id"]')" >> $GITHUB_OUTPUT
-          echo "version=$(echo "$INSPECT" | jq -r '.[0].Labels["org.opencontainers.image.version"]')" >> $GITHUB_OUTPUT
-          echo $INSPECT | jq .
-
-      # Push the image to GHCR (Image Registry)
-      - name: Push to registry
-        id: push
-        env:
-          IMAGE_TAG: ${{ needs.generate_matrix.outputs.tag }}-${{ env.CLEAN_ARCH }}
-          IMAGE_REF: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_PATH }}/${{ env.IMAGE_NAME }}
-        run: |
-          set -x
-          lowercase_ref=$(echo "${{ env.IMAGE_REF }}" | tr '[:upper:]' '[:lower:]')
-          podman tag ${{ steps.load.outputs.image-id }} ${lowercase_ref}:${{ env.IMAGE_TAG }}
-          for i in {1..3}; do
-            podman push --digestfile=/tmp/digestfile ${lowercase_ref}:${{ env.IMAGE_TAG }} && break || sleep $((5 * i));
-          done
-          [ -f /tmp/digestfile ] || exit 1
-          REMOTE_IMAGE_DIGEST=$(cat /tmp/digestfile)
-          echo "digest=$REMOTE_IMAGE_DIGEST" >> $GITHUB_OUTPUT
-          echo "image-ref=${lowercase_ref}:${{ env.IMAGE_TAG }}" >> $GITHUB_OUTPUT
-          cat /tmp/digestfile
-
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@3454372f43399081ed03b604cb2d021dabca52bb # v3.8.2
+      - uses: ./github-actions/.github/actions/sign
+        name: Sign image
+        id: sign
         if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.merged == true) && env.SIGNING_ENABLED == 'true' }}
-
-      - name: Sign Image
-        if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.merged == true) && env.SIGNING_ENABLED == 'true' }}
-        env:
-          COSIGN_EXPERIMENTAL: false
-          COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
-        run: cosign sign -y --key env://COSIGN_PRIVATE_KEY ${{ steps.push.outputs.image-ref }}@${{ steps.push.outputs.digest }}
-
-      - name: Add SBOM Attestation
-        if: ${{ inputs.generate-sbom == true && env.SIGNING_ENABLED == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.merged == true) }}
-        env:
-          IMAGE: ${{ steps.push.outputs.image-ref }}
-          DIGEST: ${{ steps.push.outputs.digest }}
-          COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
-          SBOM_OUTPUT: ${{ steps.generate-sbom.outputs.OUTPUT_PATH }}
-        run: |
-          cd "$(dirname "$SBOM_OUTPUT")"
-          cosign attest -y \
-            --predicate ./sbom.json \
-            --type spdxjson \
-            --key env://COSIGN_PRIVATE_KEY \
-            "${IMAGE}@${DIGEST}"
-
-      - name: Create Job Outputs
-        env:
-          IMAGE_NAME: ${{ env.IMAGE_NAME }}
-          PLATFORM: ${{ matrix.platform }}
-        run: |
-          mkdir -p /tmp/outputs/digests/
-          jq -n --arg platform "${PLATFORM}" \
-            --arg digest "${{ steps.push.outputs.digest }}" \
-            --arg redhat_version_id "${{ steps.load.outputs.redhat-version-id }}" \
-            --arg version "${{ steps.load.outputs.version }}" \
-            --arg image_id "${{ steps.load.outputs.image-id }}" \
-            '{($platform): {digest: $digest, version: $version, redhat_version_id: $redhat_version_id, image_id: $image_id}}' \
-            > /tmp/outputs/digests/${IMAGE_NAME}_${{env.CLEAN_ARCH}}.json
-
-          cat /tmp/outputs/digests/${IMAGE_NAME}_${{env.CLEAN_ARCH}}.json
-
-      - name: Upload Output Artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ${{ env.IMAGE_NAME }}_${{ env.CLEAN_ARCH }}
-          retention-days: 1
-          if-no-files-found: error
-          path: |
-            /tmp/outputs/digests/*.json
+          image-ref: ${{ steps.build.outputs.image-ref }}@${{ steps.build.outputs.digest }}
+          signing-secret: ${{ secrets.SIGNING_SECRET }}
+          sbom-path: ${{ steps.generate-sbom.outputs.sbom-path }}
+
 
   manifest:
     name: Create Manifest
@@ -423,150 +210,37 @@ jobs:
       packages: write
       id-token: write
     outputs:
-      image: ${{ steps.push_manifest.outputs.image }}
+      image: ${{ steps.push_manifest.outputs.image-ref }}
       digest: ${{ steps.push_manifest.outputs.digest }}
       image-id: ${{ steps.push_manifest.outputs.image-id }}
       signing-enabled: ${{ env.SIGNING_ENABLED }}
     steps:
-      - name: Login to Container Registry
-        run: |
-          echo ${{ secrets.REGISTRY_TOKEN }} | podman login -u ${{ inputs.REGISTRY_USER }} --password-stdin ${{ env.IMAGE_REGISTRY }}
-
-          # This is needed by cosign
-          echo ${{ secrets.REGISTRY_TOKEN }} | docker login -u ${{ inputs.REGISTRY_USER }} --password-stdin ${{ env.IMAGE_REGISTRY }}
-
-      - name: Get a newer podman (from debian testing)
-        run: |
-          set -eux
-          echo 'deb [trusted=yes] https://ftp.debian.org/debian/ testing main' | sudo tee /etc/apt/sources.list.d/testing.list
-          sudo apt update
-          sudo apt install -y crun/testing podman/testing
-
-      - name: Fetch Build Outputs
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - name: Checkout github actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
-          pattern: ${{ env.IMAGE_NAME }}_*
-          merge-multiple: true
-          path: /tmp/artifacts
+          repository: AlmaLinux/atomic-ci
+          ref: 'main'
+          path: github-actions
 
-      - name: Load Outputs
-        id: load-outputs
-        run: |
-          ls -lR /tmp/artifacts/
-          jq -sc add /tmp/artifacts/*.json > merged.json
-          echo "DIGESTS_JSON=$(cat merged.json)" >> $GITHUB_OUTPUT
-          jq '.' merged.json
-
-      - name: Sanity check
-        id: check
-        env:
-          DIGESTS_JSON: ${{ steps.load-outputs.outputs.DIGESTS_JSON }}
-        run: |
-          # Ensure we have the digests we expected
-          platforms=()
-          IFS=',' read -r -a platforms <<< "${{ inputs.platforms }}"
-
-          if [[ $(echo ${DIGESTS_JSON} | jq 'length') -ne ${#platforms[@]} ]]; then
-            echo "Expected ${#platforms[@]} digests, found $(echo ${DIGESTS_JSON} | jq 'length')"
-            exit 1
-          fi
-
-          echo "version=$(echo ${DIGESTS_JSON} | jq -r '[.[] | .version] | unique | .[0]')" >> $GITHUB_OUTPUT
-          echo "redhat-version-id=$(echo ${DIGESTS_JSON} | jq -r '[.[] | .redhat_version_id] | unique | .[0]')" >> $GITHUB_OUTPUT
-          echo "date=$(date -u +%Y\-%m\-%d\T%H\:%M\:%S\Z)" >> $GITHUB_OUTPUT
-
-      - name: Image Metadata
-        uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5
-        id: metadata
-        with:
-          tags: |
-            type=raw,value=${{ needs.generate_matrix.outputs.tag }}
-            type=sha,enable=${{ github.event_name != 'pull_request' }}
-            type=ref,event=pr
-          labels: |
-            containers.bootc=1
-            redhat.version-id=${{ steps.check.outputs.redhat-version-id }}
-            version=${{ steps.check.outputs.redhat-version-id }}
-            release=${{ steps.check.outputs.redhat-version-id }}
-            org.opencontainers.image.version=${{ steps.check.outputs.version }}
-            org.opencontainers.image.created=${{ steps.check.outputs.date }}
-            org.opencontainers.image.description=${{ inputs.image-description }}
-            org.opencontainers.image.documentation=${{ inputs.docs-url }}
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}/blob/main/${{ inputs.containerfile }}
-            org.opencontainers.image.title=${{ env.IMAGE_NAME }}
-            org.opencontainers.image.url=${{ github.event.repository.html_url }}
-            org.opencontainers.image.vendor=${{ github.repository_owner }}
-
-      - name: Create Manifest
-        id: create-manifest
-        env:
-          IMAGE_REF: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_PATH }}/${{ env.IMAGE_NAME }}
-        run: |
-          lowercase_ref=$(echo "${{ env.IMAGE_REF }}" | tr '[:upper:]' '[:lower:]')
-          podman manifest create ${lowercase_ref}
-          echo "MANIFEST=${lowercase_ref}" >> $GITHUB_OUTPUT
-
-      - name: Populate Manifest
-        env:
-          MANIFEST: ${{ steps.create-manifest.outputs.MANIFEST }}
-          DIGESTS_JSON: ${{ steps.load-outputs.outputs.DIGESTS_JSON }}
-          LABELS: ${{ steps.metadata.outputs.labels }}
-          IMAGE_REF: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_PATH }}/${{ env.IMAGE_NAME }}
-        run: |
-          lowercase_ref=$(echo "${{ env.IMAGE_REF }}" | tr '[:upper:]' '[:lower:]')
-
-          for platform in $(echo $DIGESTS_JSON | jq -r '. | to_entries | .[].key'); do
-            digest=$(echo $DIGESTS_JSON | jq -r ".[\"$platform\"].digest")
-            echo "Adding ${lowercase_ref}@$digest for $platform"
-            if [[ "$platform" = */v* ]]; then
-              podman manifest add $MANIFEST ${lowercase_ref}@$digest --arch ${platform%/*} --variant ${platform#*/}
-            else
-              podman manifest add $MANIFEST ${lowercase_ref}@$digest --arch $platform
-            fi
-          done
-
-          # Apply the labels to the manifest (separated by newlines)
-          while IFS= read -r label; do
-            echo "Applying label $label to manifest"
-            podman manifest annotate --index --annotation "$label" $MANIFEST
-          done <<< "$LABELS"
-
-      - name: Push Manifest
+      - uses: ./github-actions/.github/actions/manifest
         id: push_manifest
-        env:
-          MANIFEST: ${{ steps.create-manifest.outputs.MANIFEST }}
-          TAGS: ${{ steps.metadata.outputs.tags }}
-          IMAGE_REF: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_PATH }}/${{ env.IMAGE_NAME }}
-        run: |
-          lowercase_ref=$(echo "${{ env.IMAGE_REF }}" | tr '[:upper:]' '[:lower:]')
-          while IFS= read -r tag; do
-            for i in {1..3}; do
-              podman manifest push --all=false --digestfile=/tmp/digestfile $MANIFEST ${lowercase_ref}:$tag && break || sleep $((5 * i));
-            done
-            [ -f /tmp/digestfile ] || exit 1
-            echo "Pushed manifest with tag $tag"
-          done <<< "$TAGS"
+        name: Create Manifest
+        with:
+          platforms: ${{ inputs.platforms }}
+          image-name: ${{ inputs.image-name }}
+          image-path: ${{ inputs.image-path }}
+          image-tag: ${{ needs.generate_matrix.outputs.tag }}
+          image-description: ${{ inputs.image-description }}
+          docs-url: ${{ inputs.docs-url }}
+          containerfile: ${{ inputs.containerfile }}
+          REGISTRY: ${{ inputs.REGISTRY }}
+          REGISTRY_USER: ${{ inputs.REGISTRY_USER }}
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
 
-          DIGEST=$(cat /tmp/digestfile)
-          echo "digest=$DIGEST" >> $GITHUB_OUTPUT
-          echo "image=${lowercase_ref}" >> $GITHUB_OUTPUT
-
-          INSPECT=$(podman manifest inspect $lowercase_ref)
-          echo "image-id=$(echo "$INSPECT" | jq -r '("sha256:" + .[0].Id)')" >> $GITHUB_OUTPUT
-
-          echo "Pushed manifest to $lowercase_ref with digest $DIGEST"
-          echo $INSPECT | jq .
-
-      - name: Install Cosign
+      - uses: ./github-actions/.github/actions/sign
+        name: Sign Manifest
+        id: sign
         if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.merged == true) && env.SIGNING_ENABLED == 'true' }}
-        uses: sigstore/cosign-installer@3454372f43399081ed03b604cb2d021dabca52bb # v3.8.2
-
-      - name: Sign Manifest
-        if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.merged == true) && env.SIGNING_ENABLED == 'true' }}
-        env:
-          DIGEST: ${{ steps.push_manifest.outputs.digest }}
-          IMAGE: ${{ steps.push_manifest.outputs.image }}
-          COSIGN_EXPERIMENTAL: false
-          COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
-        run: |
-          cosign sign -y --key env://COSIGN_PRIVATE_KEY $IMAGE@$DIGEST
+        with:
+          image-ref: ${{ steps.push_manifest.outputs.image-ref }}@${{ steps.push_manifest.outputs.digest }}
+          signing-secret: ${{ secrets.SIGNING_SECRET }}
