@@ -226,7 +226,9 @@ jobs:
     outputs:
       image: ${{ steps.push_manifest.outputs.image-ref }}
       digest: ${{ steps.push_manifest.outputs.digest }}
-      image-id: ${{ steps.push_manifest.outputs.image-id }}
+      version: ${{ steps.push_manifest.outputs.version }}
+      redhat-version-id: ${{ steps.push_manifest.outputs.redhat-version-id }}
+      major-version: ${{ steps.push_manifest.outputs.major-version }}
       signing-enabled: ${{ env.SIGNING_ENABLED }}
     steps:
       - name: Checkout github actions
