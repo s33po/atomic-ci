@@ -8,6 +8,9 @@ inputs:
   image:
     description: Full podman image reference, including hash (e.g., "registry.example.com/image@sha256")
     required: true
+  image-name:
+    description: Name of the image, will be used to name the ISO file (e.g., "my-image")
+    required: true
   update_is_signed:
     description: Whether the image is signed or not
     required: false
