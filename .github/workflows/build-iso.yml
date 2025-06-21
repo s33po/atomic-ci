@@ -58,6 +58,10 @@ on:
         required: false
         type: boolean
         default: false
+      s3-path:
+        description: "The path to upload the ISO to in S3"
+        required: false
+        type: string
       bucket:
         description: "The S3/R2 bucket to upload the ISO to"
         required: false
@@ -162,7 +166,7 @@ jobs:
         with:
           directory: ${{ steps.build-iso.outputs.output_directory }}
           bucket: ${{ inputs.bucket }}
-          path: ${{ inputs.image-name }}
+          path: ${{ inputs.s3-path }}
           aws-default-region: ${{ inputs.aws-default-region }}
           iso-name: ${{ steps.build-iso.outputs.iso_name }}
           checksum-name: ${{ steps.build-iso.outputs.checksum_name }}
