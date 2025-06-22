@@ -68,6 +68,7 @@ on:
             - Kernel: <relver:kernel>
             - Systemd: <relver:systemd>
             - Glibc: <relver:glibc>
+            - Bootc: <relver:bootc>
       variant:
         description: "The variant of the image to build"
         required: false
