@@ -145,7 +145,6 @@ runs:
       id: rechunk
       uses: hhd-dev/rechunk@ded27feba22df48134eece2c66ba0fca1289ff40 # v1.2.3
       with:
-        rechunk: "ghcr.io/hhd-dev/rechunk:v1.2.1"
         ref: ${{ steps.build.outputs.image-id }}
         prev-ref: ${{ env.PREVIOUS_IMAGE }}
         skip_compression: true
