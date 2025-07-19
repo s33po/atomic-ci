@@ -82,10 +82,11 @@ runs:
         echo "image-ref=${lowercase_ref}" >> $GITHUB_OUTPUT
 
     - name: Login to Container Registry
-      shell: bash
-      run: |
-        # Docker login, not podman, because Cosign uses the docker login file
-        echo ${{ inputs.REGISTRY_TOKEN }} | docker login -u ${{ inputs.REGISTRY_USER }} --password-stdin ${{ inputs.REGISTRY }}
+      uses: redhat-actions/podman-login@4934294ad0449894bcd1e9f191899d7292469603 # v1.7
+      with:
+        registry: ${{ inputs.REGISTRY }}
+        username: ${{ inputs.REGISTRY_USER }}
+        password: ${{ inputs.REGISTRY_TOKEN }}
 
     - name: Maximize build space
       if: ${{ inputs.platform != 'arm64' && inputs.skip-maximize-build-space != 'true' }}

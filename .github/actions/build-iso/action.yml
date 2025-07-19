@@ -51,8 +51,11 @@ runs:
   using: "composite"
   steps:
     - name: Login to Container Registry
-      shell: bash
-      run: echo ${{ inputs.REGISTRY_TOKEN }} | podman login -u ${{ inputs.REGISTRY_USER }} --password-stdin ${{ inputs.REGISTRY }}
+      uses: redhat-actions/podman-login@4934294ad0449894bcd1e9f191899d7292469603 # v1.7
+      with:
+        registry: ${{ inputs.REGISTRY }}
+        username: ${{ inputs.REGISTRY_USER }}
+        password: ${{ inputs.REGISTRY_TOKEN }}
 
     - name: Set up environment
       id: set-env
