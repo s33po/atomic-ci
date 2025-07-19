@@ -73,8 +73,8 @@ on:
         description: "The variant of the image to build"
         required: false
         type: string
-      KMS_KEY_ID:
-        description: "The KMS key ID to use for signing the image"
+      KMS_KEY_ALIAS:
+        description: "The AWS KMS alias to use for signing the image"
         required: false
         type: string
       AWS_REGION:
@@ -113,7 +113,7 @@ env:
   CONTAINERFILE: ${{ inputs.containerfile }}
   IMAGE_REGISTRY: ${{ inputs.REGISTRY }}
   IMAGE_PATH: ${{ inputs.image-path }}
-  SIGNING_ENABLED: ${{ (secrets.SIGNING_SECRET != null && secrets.SIGNING_SECRET != '') || inputs.KMS_KEY_ID != '' }}
+  SIGNING_ENABLED: ${{ (secrets.SIGNING_SECRET != null && secrets.SIGNING_SECRET != '') || inputs.KMS_KEY_ALIAS != '' }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref || github.run_id }}-${{ inputs.image-name }}
@@ -209,7 +209,7 @@ jobs:
           image-ref: ${{ steps.build.outputs.image-ref }}@${{ steps.build.outputs.digest }}
           signing-secret: ${{ secrets.SIGNING_SECRET }}
           sbom-path: ${{ steps.generate-sbom.outputs.sbom-path }}
-          KMS_KEY_ID: ${{ inputs.KMS_KEY_ID }}
+          KMS_KEY_ALIAS: ${{ inputs.KMS_KEY_ALIAS }}
           AWS_REGION: ${{ inputs.AWS_REGION }}
           AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
 
@@ -261,6 +261,6 @@ jobs:
         with:
           image-ref: ${{ steps.push_manifest.outputs.image-ref }}@${{ steps.push_manifest.outputs.digest }}
           signing-secret: ${{ secrets.SIGNING_SECRET }}
-          KMS_KEY_ID: ${{ inputs.KMS_KEY_ID }}
+          KMS_KEY_ALIAS: ${{ inputs.KMS_KEY_ALIAS }}
           AWS_REGION: ${{ inputs.AWS_REGION }}
           AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
