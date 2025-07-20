@@ -43,7 +43,7 @@ jobs:
         with:
           registry: ${{ inputs.REGISTRY }}
           username: ${{ inputs.REGISTRY_USER }}
-          password: ${{ inputs.REGISTRY_TOKEN }}
+          password: ${{ secrets.REGISTRY_TOKEN }}
 
       - name: Tag image
         shell: bash
