@@ -159,7 +159,7 @@ runs:
           org.opencontainers.image.created=${{ steps.build.outputs.date }}
           org.opencontainers.image.description=${{ inputs.image-description }}
           org.opencontainers.image.documentation=${{ inputs.docs-url }}
-          org.opencontainers.image.source=https://github.com/${{ github.repository }}/blob/main/${{ inputs.containerfile }}
+          org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           org.opencontainers.image.revision=${{ github.sha }}
           org.opencontainers.image.title=${{ inputs.image-name }}
           org.opencontainers.image.url=${{ github.event.repository.html_url }}
