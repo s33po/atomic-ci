@@ -33,8 +33,6 @@ jobs:
   retag-image:
     name: Retag image
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
       - name: Install Crane
@@ -56,14 +54,3 @@ jobs:
             [[ -z "$tag" ]] && continue
             crane tag ${{ inputs.image }}@${{ inputs.digest }} "$tag"
           done
-
-      - name: Create git tag
-        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
-        with:
-          script: |
-            github.rest.git.createRef({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              ref: 'refs/tags/${{ inputs.digest }}',
-              sha: context.sha
-            })
