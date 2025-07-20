@@ -3,7 +3,11 @@ on:
   workflow_call:
     inputs:
       image:
-        description: "Full image reference, including hash"
+        description: "Image reference, excluding hash"
+        required: true
+        type: string
+      digest:
+        description: "Image hash digest"
         required: true
         type: string
       tag:
@@ -34,13 +38,30 @@ jobs:
       - name: Install Crane
         uses: imjasonh/setup-crane@31b88efe9de28ae0ffa220711af4b60be9435f6e # v0.4
 
+      - name: Login to Container Registry
+        uses: redhat-actions/podman-login@4934294ad0449894bcd1e9f191899d7292469603 # v1.7
+        with:
+          registry: ${{ inputs.REGISTRY }}
+          username: ${{ inputs.REGISTRY_USER }}
+          password: ${{ inputs.REGISTRY_TOKEN }}
+
       - name: Tag image
         shell: bash
         run: |
-          echo "${{ secrets.REGISTRY_TOKEN }}" | crane auth login ${{ inputs.REGISTRY }} --username ${{ inputs.REGISTRY_USER }} --password-stdin
           # Read tags into an array (strips trailing newline) and loop
           mapfile -t tags <<< "${{ inputs.tag }}"
           for tag in "${tags[@]}"; do
             [[ -z "$tag" ]] && continue
-            crane tag ${{ inputs.image }} "$tag"
+            crane tag ${{ inputs.image }}@${{ inputs.digest }} "$tag"
           done
+
+      - name: Create git tag
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'refs/tags/${{ inputs.digest }}',
+              sha: context.sha
+            })
