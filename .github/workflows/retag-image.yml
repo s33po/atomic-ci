@@ -33,6 +33,8 @@ jobs:
   retag-image:
     name: Retag image
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Install Crane
