@@ -136,11 +136,32 @@ runs:
         sudo podman run --platform=linux/${{ inputs.platform }} --rm ${{ env.IMAGE_ID }} bash -c "rpm -q almalinux-gpg-keys && cat /etc/os-release"
         echo "::endgroup::"
 
-    - name: Lowercase previous image
-      id: lowercase
+    - name: Prepare previous image
+      id: prep-prev
       shell: bash
       run: |
-        echo "PREVIOUS_IMAGE=`echo ${{ inputs.previous-image }} | tr '[:upper:]' '[:lower:]'`" >>${GITHUB_ENV}
+        PREVIOUS_IMAGE=$(echo ${{ inputs.previous-image }} | tr '[:upper:]' '[:lower:]')
+
+        # If the previous image is a multi-arch image, we need to find the digest for the current platform
+        # Rechunker won't necessarily pick the right one, so we need to do it manually
+        platform=${{ inputs.platform }}
+        JQ_FILTER=".manifests[] | select(.platform.architecture==\"${platform%/*}\" and "
+        if [[ "$platform" = */v* ]]; then
+          JQ_FILTER+=".platform.variant==\"${platform#*/}\""
+        else
+          JQ_FILTER+="(.platform | has(\"variant\") | not)"
+        fi
+        JQ_FILTER+=") | .digest"
+
+        DIGEST=$(skopeo inspect --no-tags --raw docker://${PREVIOUS_IMAGE} | jq -er "${JQ_FILTER}" 2>/dev/null || echo "")
+
+        # If DIGEST isn't empty, it's because the previous image was a manifest list and we found the one for the current platform
+        if [[ -n "$DIGEST" ]]; then
+          echo "Image ${PREVIOUS_IMAGE} contains an image for platform $platform, using it: ${PREVIOUS_IMAGE/%[:@]*/}@${DIGEST}"
+          PREVIOUS_IMAGE="${PREVIOUS_IMAGE/%[:@]*/}@${DIGEST}"
+        fi
+
+        echo "PREVIOUS_IMAGE=${PREVIOUS_IMAGE}" >> $GITHUB_ENV
 
     - name: Run Rechunker
       id: rechunk
