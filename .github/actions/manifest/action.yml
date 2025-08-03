@@ -109,7 +109,7 @@ runs:
       with:
         tags: |
           type=raw,value=${{ inputs.image-tag }}
-          type=sha,enable=${{ github.event_name != 'pull_request' }}
+          type=sha,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
           type=ref,event=pr
         labels: |
           containers.bootc=1
