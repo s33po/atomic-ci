@@ -109,7 +109,7 @@ runs:
       with:
         tags: |
           type=raw,value=${{ inputs.image-tag }}
-          type=sha,enable=${{ is_default_branch }}
+          type=sha,enable={{is_default_branch}}
           type=ref,event=pr
         labels: |
           containers.bootc=1
