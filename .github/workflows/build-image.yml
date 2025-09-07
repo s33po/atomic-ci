@@ -133,9 +133,9 @@ jobs:
       - name: Checkout github actions
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v4
         with:
-            repository: s33po/atomic-ci
-            ref: 'main'
-            path: github-actions
+          repository: s33po/atomic-ci
+          ref: 'main'
+          path: github-actions
 
       - uses: ./github-actions/.github/actions/prepare-build
         name: Prepare build
@@ -174,7 +174,7 @@ jobs:
       - name: Checkout github actions
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v4
         with:
-            repository: s33po/atomic-ci
+          repository: s33po/atomic-ci
           ref: 'main'
           path: github-actions
 
@@ -237,7 +237,7 @@ jobs:
       - name: Checkout github actions
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v4
         with:
-            repository: s33po/atomic-ci
+          repository: s33po/atomic-ci
           ref: 'main'
           path: github-actions
 
