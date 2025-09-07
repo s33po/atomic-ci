@@ -159,11 +159,11 @@ jobs:
       id-token: write
 
     outputs:
-      image-ref: ${{ steps.push.outputs.image-ref }}
-      digest: ${{ steps.push.outputs.digest }}
-      redhat-id: ${{ steps.check.outputs.redhat-id }}
-      redhat-version-id: ${{ steps.check.outputs.redhat-version-id }}
-      version: ${{ steps.load.outputs.version }}
+      image-ref: ${{ steps.build.outputs.image-ref }}
+      digest: ${{ steps.build.outputs.digest }}
+      redhat-id: ${{ steps.build.outputs.redhat-id }}
+      redhat-version-id: ${{ steps.build.outputs.redhat-version-id }}
+      version: ${{ steps.build.outputs.version }}
 
     steps:
       - name: Checkout
