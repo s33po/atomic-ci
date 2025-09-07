@@ -8,6 +8,7 @@ updates:
       - '/'
       - '/.github/actions/**/*'
     schedule:
-      interval: "daily"
-      time: "04:00"
+      interval: "weekly"
+      day: "saturday"
+      time: "03:00"
     open-pull-requests-limit: 5
