@@ -133,7 +133,19 @@ runs:
         echo "major-version=$(echo "$INSPECT" | jq -r '.[0].Labels["redhat.version-id"]' | cut -d. -f1)" >> $GITHUB_OUTPUT
         echo "version=$(echo "$INSPECT" | jq -r '.[0].Labels["org.opencontainers.image.version"]')" >> $GITHUB_OUTPUT
 
-        sudo podman run --platform=linux/${{ inputs.platform }} --rm ${{ env.IMAGE_ID }} bash -c "rpm -q almalinux-gpg-keys && cat /etc/os-release"
+        sudo podman run --platform=linux/${{ inputs.platform }} --rm ${{ env.IMAGE_ID }} bash -c '
+          source /etc/os-release
+          if [[ "$ID" == "almalinux" ]]; then
+            rpm -q almalinux-gpg-keys
+          elif [[ "$ID" == "centos" ]]; then
+            rpm -q centos-gpg-keys
+          elif [[ "$ID" == "fedora" ]]; then
+            rpm -q fedora-gpg-keys
+          else
+            echo "Unknown or unsupported distro: $ID"
+          fi
+          cat /etc/os-release
+        '
         echo "::endgroup::"
 
     - name: Prepare previous image

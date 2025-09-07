@@ -124,9 +124,9 @@ jobs:
       - name: Checkout github actions
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v4
         with:
-          repository: AlmaLinux/atomic-ci
-          ref: 'main'
-          path: github-actions
+            repository: s33po/atomic-ci
+            ref: 'main'
+            path: github-actions
 
       - name: Build ISO
         id: build-iso
