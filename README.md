@@ -1,10 +1,7 @@
+## Notice
 
-# Notice
+This is a personal fork of the AlmaLinux Atomic-CI repository. I’ve made some tweaks to the CI pipeline to fit my own needs.
 
-This repository is a personal fork of the original [AlmaLinux Atomic-CI repository](https://github.com/AlmaLinux/atomic-ci). It has been modified to suit my personal workflow requirements and is not intended for use by others.
+For official updates, support, or to contribute, please visit the original [AlmaLinux Atomic-CI repository](https://github.com/AlmaLinux/atomic-ci).
 
-**Disclaimer:**
-- This repository is not supported, maintained, or endorsed by the AlmaLinux Atomic SIG or any official organization.
-- All original credit, design, and intellectual property belong to the AlmaLinux Atomic SIG and its contributors.
-- For official usage, documentation, support, or contributions, please refer to the [AlmaLinux Atomic SIG repository](https://github.com/AlmaLinux/atomic-ci).
-
+All original credit and rights go to AlmaLinux Atomic SIG and its contributors.
